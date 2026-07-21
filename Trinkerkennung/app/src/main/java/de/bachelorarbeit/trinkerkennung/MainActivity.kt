@@ -48,7 +48,7 @@ private fun AudioRecordingScreen() {
     val context = LocalContext.current
 
     val audioRecorder = remember {
-        PhoneAudioRecorder(context.applicationContext)
+        WavAudioRecorder(context.applicationContext)
     }
 
     var permissionGranted by remember {
@@ -105,7 +105,7 @@ private fun AudioRecordingScreen() {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Smartphone-Audiotest",
+            text = "Audioaufnahme",
             style = MaterialTheme.typography.headlineMedium
         )
 
