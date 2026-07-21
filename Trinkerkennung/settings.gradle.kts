@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Trinkerkennung"
 include(":app")
- 
+include(":wear")
