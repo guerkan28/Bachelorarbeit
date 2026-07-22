@@ -64,6 +64,29 @@ class MainActivity : ComponentActivity() {
 private fun MotionSensorScreen() {
     val context = LocalContext.current
 
+    var communicationStatus by remember {
+        mutableStateOf(
+            "Warte auf PING vom Smartphone."
+        )
+    }
+
+    val watchCommunication = remember {
+        WatchWearCommunication(
+            context = context.applicationContext,
+            onStatusChanged = { newStatus ->
+                communicationStatus = newStatus
+            }
+        )
+    }
+
+    DisposableEffect(watchCommunication) {
+        watchCommunication.startListening()
+
+        onDispose {
+            watchCommunication.stopListening()
+        }
+    }
+
     val sensorManager = remember {
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     }
@@ -209,6 +232,18 @@ private fun MotionSensorScreen() {
             Text(
                 text = "Sensoraufnahme",
                 style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                color = Color.White
+            )
+        }
+
+        item {
+            Text(
+                text = communicationStatus,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 color = Color.White
             )

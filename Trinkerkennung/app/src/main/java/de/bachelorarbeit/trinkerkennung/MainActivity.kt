@@ -47,6 +47,29 @@ class MainActivity : ComponentActivity() {
 private fun AudioRecordingScreen() {
     val context = LocalContext.current
 
+    var wearStatus by remember {
+        mutableStateOf(
+            "Noch keine Testnachricht gesendet."
+        )
+    }
+
+    val wearCommunication = remember {
+        PhoneWearCommunication(
+            context = context.applicationContext,
+            onStatusChanged = { newStatus ->
+                wearStatus = newStatus
+            }
+        )
+    }
+
+    DisposableEffect(wearCommunication) {
+        wearCommunication.startListening()
+
+        onDispose {
+            wearCommunication.stopListening()
+        }
+    }
+
     val audioRecorder = remember {
         WavAudioRecorder(context.applicationContext)
     }
@@ -108,8 +131,29 @@ private fun AudioRecordingScreen() {
             text = "Audioaufnahme",
             style = MaterialTheme.typography.headlineMedium
         )
-
         Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Smartwatch-Kommunikation",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(text = wearStatus)
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = {
+                wearCommunication.sendPing()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("PING an Smartwatch senden")
+        }
+
+        //Spacer(modifier = Modifier.height(24.dp))
 
         Text(text = statusText)
 

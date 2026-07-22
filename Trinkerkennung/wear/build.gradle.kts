@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "de.bachelorarbeit.trinkerkennung.wear"
+        applicationId = "de.bachelorarbeit.trinkerkennung"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
