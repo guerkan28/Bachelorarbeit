@@ -7,10 +7,15 @@ import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 class PhoneWearCommunication(
     context: Context,
-    private val onStatusChanged: (String) -> Unit
+    private val onStatusChanged: (String) -> Unit,
+    private val onSessionControlsChanged: (
+        canStart: Boolean,
+        canStop: Boolean
+    ) -> Unit
 ) : MessageClient.OnMessageReceivedListener {
 
     companion object {
@@ -19,6 +24,33 @@ class PhoneWearCommunication(
 
         private const val ACK_PATH =
             "/trinkerkennung/test/ack"
+
+        private const val PREPARE_PATH =
+            "/trinkerkennung/session/prepare"
+
+        private const val READY_PATH =
+            "/trinkerkennung/session/ready"
+
+        private const val START_PATH =
+            "/trinkerkennung/session/start"
+
+        private const val STARTED_PATH =
+            "/trinkerkennung/session/started"
+
+        private const val STOP_PATH =
+            "/trinkerkennung/session/stop"
+
+        private const val STOPPED_PATH =
+            "/trinkerkennung/session/stopped"
+    }
+
+    private enum class SessionState {
+        IDLE,
+        PREPARING,
+        READY,
+        STARTING,
+        RECORDING,
+        STOPPING
     }
 
     private val applicationContext =
@@ -33,13 +65,28 @@ class PhoneWearCommunication(
     private val mainHandler =
         Handler(Looper.getMainLooper())
 
+    @Volatile
+    private var currentSessionId: String? = null
+
+    @Volatile
+    private var currentWatchNodeId: String? = null
+
+    @Volatile
+    private var sessionState =
+        SessionState.IDLE
+
     fun startListening() {
+        notifySessionControls()
+
         messageClient
             .addListener(this)
             .addOnFailureListener { exception ->
                 updateStatus(
                     "Nachrichtenempfang konnte nicht aktiviert werden: " +
-                            (exception.message ?: "Unbekannter Fehler")
+                            (
+                                    exception.message
+                                        ?: "Unbekannter Fehler"
+                                    )
                 )
             }
     }
@@ -49,7 +96,9 @@ class PhoneWearCommunication(
     }
 
     fun sendPing() {
-        updateStatus("Suche verbundene Smartwatch …")
+        updateStatus(
+            "Suche verbundene Smartwatch …"
+        )
 
         nodeClient.connectedNodes
             .addOnSuccessListener { nodes ->
@@ -63,7 +112,9 @@ class PhoneWearCommunication(
                 val payload =
                     System.currentTimeMillis()
                         .toString()
-                        .toByteArray(StandardCharsets.UTF_8)
+                        .toByteArray(
+                            StandardCharsets.UTF_8
+                        )
 
                 val node = nodes.first()
 
@@ -92,7 +143,283 @@ class PhoneWearCommunication(
             .addOnFailureListener { exception ->
                 updateStatus(
                     "Gerätesuche fehlgeschlagen: " +
-                            (exception.message ?: "Unbekannter Fehler")
+                            (
+                                    exception.message
+                                        ?: "Unbekannter Fehler"
+                                    )
+                )
+            }
+    }
+
+    fun prepareSession() {
+        if (
+            sessionState == SessionState.STARTING ||
+            sessionState == SessionState.RECORDING ||
+            sessionState == SessionState.STOPPING
+        ) {
+            updateStatus(
+                "Eine laufende Sitzung muss zuerst beendet werden."
+            )
+            return
+        }
+
+        val sessionId =
+            UUID.randomUUID().toString()
+
+        currentSessionId = sessionId
+        currentWatchNodeId = null
+
+        updateSessionState(
+            SessionState.PREPARING
+        )
+
+        updateStatus(
+            "Bereite Sitzung ${sessionId.take(8)} vor …"
+        )
+
+        nodeClient.connectedNodes
+            .addOnSuccessListener { nodes ->
+                if (nodes.isEmpty()) {
+                    if (currentSessionId == sessionId) {
+                        resetSession()
+                    }
+
+                    updateStatus(
+                        "Keine verbundene Smartwatch gefunden."
+                    )
+                    return@addOnSuccessListener
+                }
+
+                val node = nodes.first()
+
+                if (currentSessionId != sessionId) {
+                    return@addOnSuccessListener
+                }
+
+                currentWatchNodeId = node.id
+
+                val payload = buildString {
+                    append("session_id=")
+                    append(sessionId)
+
+                    append(";phone_prepare_epoch_ms=")
+                    append(System.currentTimeMillis())
+                }.toByteArray(StandardCharsets.UTF_8)
+
+                messageClient
+                    .sendMessage(
+                        node.id,
+                        PREPARE_PATH,
+                        payload
+                    )
+                    .addOnSuccessListener {
+                        if (
+                            currentSessionId == sessionId &&
+                            sessionState ==
+                            SessionState.PREPARING
+                        ) {
+                            updateStatus(
+                                "PREPARE für Sitzung " +
+                                        "${sessionId.take(8)} gesendet. " +
+                                        "Warte auf READY …"
+                            )
+                        }
+                    }
+                    .addOnFailureListener { exception ->
+                        if (currentSessionId == sessionId) {
+                            resetSession()
+                        }
+
+                        updateStatus(
+                            "PREPARE konnte nicht gesendet werden: " +
+                                    (
+                                            exception.message
+                                                ?: "Unbekannter Fehler"
+                                            )
+                        )
+                    }
+            }
+            .addOnFailureListener { exception ->
+                if (currentSessionId == sessionId) {
+                    resetSession()
+                }
+
+                updateStatus(
+                    "Gerätesuche fehlgeschlagen: " +
+                            (
+                                    exception.message
+                                        ?: "Unbekannter Fehler"
+                                    )
+                )
+            }
+    }
+
+    fun startPreparedSession() {
+        if (sessionState != SessionState.READY) {
+            updateStatus(
+                "Die Smartwatch ist noch nicht für eine " +
+                        "Aufnahme bereit."
+            )
+            return
+        }
+
+        val sessionId =
+            currentSessionId
+
+        val watchNodeId =
+            currentWatchNodeId
+
+        if (
+            sessionId.isNullOrBlank() ||
+            watchNodeId.isNullOrBlank()
+        ) {
+            resetSession()
+
+            updateStatus(
+                "Die vorbereitete Sitzung enthält " +
+                        "keine gültigen Verbindungsdaten."
+            )
+            return
+        }
+
+        updateSessionState(
+            SessionState.STARTING
+        )
+
+        val payload = buildString {
+            append("session_id=")
+            append(sessionId)
+
+            append(";phone_start_command_epoch_ms=")
+            append(System.currentTimeMillis())
+        }.toByteArray(StandardCharsets.UTF_8)
+
+        updateStatus(
+            "Starte Sensoraufnahme für Sitzung " +
+                    "${sessionId.take(8)} …"
+        )
+
+        messageClient
+            .sendMessage(
+                watchNodeId,
+                START_PATH,
+                payload
+            )
+            .addOnSuccessListener {
+                if (
+                    currentSessionId == sessionId &&
+                    sessionState ==
+                    SessionState.STARTING
+                ) {
+                    updateStatus(
+                        "START für Sitzung " +
+                                "${sessionId.take(8)} gesendet. " +
+                                "Warte auf STARTED …"
+                    )
+                }
+            }
+            .addOnFailureListener { exception ->
+                if (
+                    currentSessionId == sessionId &&
+                    sessionState ==
+                    SessionState.STARTING
+                ) {
+                    updateSessionState(
+                        SessionState.READY
+                    )
+                }
+
+                updateStatus(
+                    "START konnte nicht gesendet werden: " +
+                            (
+                                    exception.message
+                                        ?: "Unbekannter Fehler"
+                                    )
+                )
+            }
+    }
+
+    fun stopCurrentSession() {
+        if (sessionState != SessionState.RECORDING) {
+            updateStatus(
+                "Es läuft derzeit keine bestätigte " +
+                        "Smartwatch-Sensoraufnahme."
+            )
+            return
+        }
+
+        val sessionId =
+            currentSessionId
+
+        val watchNodeId =
+            currentWatchNodeId
+
+        if (
+            sessionId.isNullOrBlank() ||
+            watchNodeId.isNullOrBlank()
+        ) {
+            resetSession()
+
+            updateStatus(
+                "Die laufende Sitzung enthält keine " +
+                        "gültigen Verbindungsdaten."
+            )
+            return
+        }
+
+        updateSessionState(
+            SessionState.STOPPING
+        )
+
+        val payload = buildString {
+            append("session_id=")
+            append(sessionId)
+
+            append(";phone_stop_command_epoch_ms=")
+            append(System.currentTimeMillis())
+        }.toByteArray(StandardCharsets.UTF_8)
+
+        updateStatus(
+            "Beende Sensoraufnahme für Sitzung " +
+                    "${sessionId.take(8)} …"
+        )
+
+        messageClient
+            .sendMessage(
+                watchNodeId,
+                STOP_PATH,
+                payload
+            )
+            .addOnSuccessListener {
+                if (
+                    currentSessionId == sessionId &&
+                    sessionState ==
+                    SessionState.STOPPING
+                ) {
+                    updateStatus(
+                        "STOP für Sitzung " +
+                                "${sessionId.take(8)} gesendet. " +
+                                "Warte auf STOPPED …"
+                    )
+                }
+            }
+            .addOnFailureListener { exception ->
+                if (
+                    currentSessionId == sessionId &&
+                    sessionState ==
+                    SessionState.STOPPING
+                ) {
+                    updateSessionState(
+                        SessionState.RECORDING
+                    )
+                }
+
+                updateStatus(
+                    "STOP konnte nicht gesendet werden: " +
+                            (
+                                    exception.message
+                                        ?: "Unbekannter Fehler"
+                                    )
                 )
             }
     }
@@ -100,37 +427,44 @@ class PhoneWearCommunication(
     override fun onMessageReceived(
         messageEvent: MessageEvent
     ) {
-        if (messageEvent.path != ACK_PATH) {
-            return
-        }
+        when (messageEvent.path) {
+            ACK_PATH -> {
+                handlePingAcknowledgement(
+                    messageEvent
+                )
+            }
 
+            READY_PATH -> {
+                handleSessionReady(
+                    messageEvent
+                )
+            }
+
+            STARTED_PATH -> {
+                handleSessionStarted(
+                    messageEvent
+                )
+            }
+
+            STOPPED_PATH -> {
+                handleSessionStopped(
+                    messageEvent
+                )
+            }
+        }
+    }
+
+    private fun handlePingAcknowledgement(
+        messageEvent: MessageEvent
+    ) {
         val phoneReceiveTimestampMs =
             System.currentTimeMillis()
 
         val payload = messageEvent.data
             .toString(StandardCharsets.UTF_8)
 
-        val values = payload
-            .split(";")
-            .map { it.trim() }
-            .mapNotNull { part ->
-                val separatorIndex = part.indexOf("=")
-
-                if (separatorIndex <= 0) {
-                    null
-                } else {
-                    val key = part
-                        .substring(0, separatorIndex)
-                        .trim()
-
-                    val value = part
-                        .substring(separatorIndex + 1)
-                        .trim()
-
-                    key to value
-                }
-            }
-            .toMap()
+        val values =
+            parsePayload(payload)
 
         val phoneSendTimestampMs =
             values["phone_timestamp_ms"]
@@ -157,21 +491,327 @@ class PhoneWearCommunication(
 
         updateStatus(
             buildString {
-                append("ACK von der Smartwatch empfangen.")
+                append(
+                    "ACK von der Smartwatch empfangen."
+                )
+
                 append("\nRound-Trip-Time: ")
                 append(roundTripTimeMs)
                 append(" ms")
+
                 append("\nSmartphone Start: ")
                 append(phoneSendTimestampMs)
+
                 append("\nWatch Verarbeitung: ")
                 append(watchTimestampMs)
+
                 append("\nSmartphone Empfang: ")
                 append(phoneReceiveTimestampMs)
             }
         )
     }
 
-    private fun updateStatus(text: String) {
+    private fun handleSessionReady(
+        messageEvent: MessageEvent
+    ) {
+        val payload = messageEvent.data
+            .toString(StandardCharsets.UTF_8)
+
+        val values =
+            parsePayload(payload)
+
+        val receivedSessionId =
+            values["session_id"]
+
+        if (
+            !isExpectedSessionMessage(
+                messageEvent = messageEvent,
+                receivedSessionId =
+                    receivedSessionId,
+                messageName = "READY"
+            )
+        ) {
+            return
+        }
+
+        if (
+            sessionState != SessionState.PREPARING &&
+            sessionState != SessionState.READY
+        ) {
+            return
+        }
+
+        updateSessionState(
+            SessionState.READY
+        )
+
+        val watchReadyTimestamp =
+            values["watch_ready_epoch_ms"]
+                ?: "unbekannt"
+
+        updateStatus(
+            buildString {
+                append(
+                    "Smartwatch ist bereit."
+                )
+
+                append("\nSession: ")
+                append(
+                    receivedSessionId?.take(8)
+                )
+
+                append("\nWatch READY: ")
+                append(watchReadyTimestamp)
+            }
+        )
+    }
+
+    private fun handleSessionStarted(
+        messageEvent: MessageEvent
+    ) {
+        val payload = messageEvent.data
+            .toString(StandardCharsets.UTF_8)
+
+        val values =
+            parsePayload(payload)
+
+        val receivedSessionId =
+            values["session_id"]
+
+        if (
+            !isExpectedSessionMessage(
+                messageEvent = messageEvent,
+                receivedSessionId =
+                    receivedSessionId,
+                messageName = "STARTED"
+            )
+        ) {
+            return
+        }
+
+        if (
+            sessionState != SessionState.STARTING &&
+            sessionState != SessionState.RECORDING
+        ) {
+            return
+        }
+
+        updateSessionState(
+            SessionState.RECORDING
+        )
+
+        val watchStartTimestamp =
+            values["watch_start_epoch_ms"]
+                ?: "unbekannt"
+
+        val watchFileName =
+            values["watch_file_name"]
+                ?: "unbekannt"
+
+        updateStatus(
+            buildString {
+                append(
+                    "Smartwatch-Sensoraufnahme läuft."
+                )
+
+                append("\nSession: ")
+                append(
+                    receivedSessionId?.take(8)
+                )
+
+                append("\nWatch STARTED: ")
+                append(watchStartTimestamp)
+
+                append("\nWatch-Datei: ")
+                append(watchFileName)
+            }
+        )
+    }
+
+    private fun handleSessionStopped(
+        messageEvent: MessageEvent
+    ) {
+        val payload = messageEvent.data
+            .toString(StandardCharsets.UTF_8)
+
+        val values =
+            parsePayload(payload)
+
+        val receivedSessionId =
+            values["session_id"]
+
+        if (
+            !isExpectedSessionMessage(
+                messageEvent = messageEvent,
+                receivedSessionId =
+                    receivedSessionId,
+                messageName = "STOPPED"
+            )
+        ) {
+            return
+        }
+
+        if (
+            sessionState != SessionState.STOPPING &&
+            sessionState != SessionState.RECORDING
+        ) {
+            return
+        }
+
+        val watchStopTimestamp =
+            values["watch_stop_epoch_ms"]
+                ?: "unbekannt"
+
+        val recordingSuccess =
+            when (
+                values["recording_success"]
+            ) {
+                "true" -> "ja"
+                "false" -> "nein"
+                else -> "unbekannt"
+            }
+
+        val watchFileName =
+            values["watch_file_name"]
+                ?: "unbekannt"
+
+        val sessionShortId =
+            receivedSessionId?.take(8)
+                ?: "unbekannt"
+
+        resetSession()
+
+        updateStatus(
+            buildString {
+                append(
+                    "Smartwatch-Sensoraufnahme beendet."
+                )
+
+                append("\nSession: ")
+                append(sessionShortId)
+
+                append("\nErfolgreich gespeichert: ")
+                append(recordingSuccess)
+
+                append("\nWatch STOPPED: ")
+                append(watchStopTimestamp)
+
+                append("\nWatch-Datei: ")
+                append(watchFileName)
+            }
+        )
+    }
+
+    private fun isExpectedSessionMessage(
+        messageEvent: MessageEvent,
+        receivedSessionId: String?,
+        messageName: String
+    ): Boolean {
+        val expectedSessionId =
+            currentSessionId
+
+        val expectedWatchNodeId =
+            currentWatchNodeId
+
+        if (
+            receivedSessionId.isNullOrBlank() ||
+            expectedSessionId.isNullOrBlank()
+        ) {
+            updateStatus(
+                "$messageName ohne gültige Session-ID empfangen."
+            )
+            return false
+        }
+
+        if (
+            receivedSessionId != expectedSessionId
+        ) {
+            updateStatus(
+                "$messageName gehört zu einer anderen Sitzung."
+            )
+            return false
+        }
+
+        if (
+            expectedWatchNodeId != null &&
+            messageEvent.sourceNodeId !=
+            expectedWatchNodeId
+        ) {
+            updateStatus(
+                "$messageName wurde von einer anderen Watch empfangen."
+            )
+            return false
+        }
+
+        return true
+    }
+
+    private fun resetSession() {
+        currentSessionId = null
+        currentWatchNodeId = null
+
+        updateSessionState(
+            SessionState.IDLE
+        )
+    }
+
+    private fun updateSessionState(
+        newState: SessionState
+    ) {
+        sessionState = newState
+        notifySessionControls()
+    }
+
+    private fun notifySessionControls() {
+        val canStart =
+            sessionState == SessionState.READY
+
+        val canStop =
+            sessionState == SessionState.RECORDING
+
+        mainHandler.post {
+            onSessionControlsChanged(
+                canStart,
+                canStop
+            )
+        }
+    }
+
+    private fun parsePayload(
+        payload: String
+    ): Map<String, String> {
+        return payload
+            .split(";")
+            .mapNotNull { part ->
+                val separatorIndex =
+                    part.indexOf("=")
+
+                if (separatorIndex <= 0) {
+                    null
+                } else {
+                    val key = part
+                        .substring(
+                            startIndex = 0,
+                            endIndex = separatorIndex
+                        )
+                        .trim()
+
+                    val value = part
+                        .substring(
+                            startIndex =
+                                separatorIndex + 1
+                        )
+                        .trim()
+
+                    key to value
+                }
+            }
+            .toMap()
+    }
+
+    private fun updateStatus(
+        text: String
+    ) {
         mainHandler.post {
             onStatusChanged(text)
         }

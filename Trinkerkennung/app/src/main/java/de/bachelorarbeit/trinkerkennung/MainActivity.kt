@@ -32,7 +32,9 @@ import de.bachelorarbeit.trinkerkennung.ui.theme.TrinkerkennungTheme
 
 class MainActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
         super.onCreate(savedInstanceState)
 
         setContent {
@@ -45,7 +47,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AudioRecordingScreen() {
-    val context = LocalContext.current
+    val context =
+        LocalContext.current
 
     var wearStatus by remember {
         mutableStateOf(
@@ -53,16 +56,37 @@ private fun AudioRecordingScreen() {
         )
     }
 
+    var canStartWatchRecording by remember {
+        mutableStateOf(false)
+    }
+
+    var canStopWatchRecording by remember {
+        mutableStateOf(false)
+    }
+
     val wearCommunication = remember {
         PhoneWearCommunication(
-            context = context.applicationContext,
+            context =
+                context.applicationContext,
             onStatusChanged = { newStatus ->
                 wearStatus = newStatus
+            },
+            onSessionControlsChanged = {
+                    canStart,
+                    canStop ->
+
+                canStartWatchRecording =
+                    canStart
+
+                canStopWatchRecording =
+                    canStop
             }
         )
     }
 
-    DisposableEffect(wearCommunication) {
+    DisposableEffect(
+        wearCommunication
+    ) {
         wearCommunication.startListening()
 
         onDispose {
@@ -71,7 +95,9 @@ private fun AudioRecordingScreen() {
     }
 
     val audioRecorder = remember {
-        WavAudioRecorder(context.applicationContext)
+        WavAudioRecorder(
+            context.applicationContext
+        )
     }
 
     var permissionGranted by remember {
@@ -79,7 +105,8 @@ private fun AudioRecordingScreen() {
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
         )
     }
 
@@ -92,7 +119,8 @@ private fun AudioRecordingScreen() {
             if (permissionGranted) {
                 "Bereit für eine Testaufnahme."
             } else {
-                "Die Mikrofonberechtigung wurde noch nicht erteilt."
+                "Die Mikrofonberechtigung wurde " +
+                        "noch nicht erteilt."
             }
         )
     }
@@ -101,17 +129,21 @@ private fun AudioRecordingScreen() {
         mutableStateOf<String?>(null)
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        permissionGranted = granted
+    val permissionLauncher =
+        rememberLauncherForActivityResult(
+            contract =
+                ActivityResultContracts
+                    .RequestPermission()
+        ) { granted ->
+            permissionGranted = granted
 
-        statusText = if (granted) {
-            "Mikrofonberechtigung wurde erteilt."
-        } else {
-            "Mikrofonberechtigung wurde verweigert."
+            statusText =
+                if (granted) {
+                    "Mikrofonberechtigung wurde erteilt."
+                } else {
+                    "Mikrofonberechtigung wurde verweigert."
+                }
         }
-    }
 
     DisposableEffect(audioRecorder) {
         onDispose {
@@ -124,105 +156,242 @@ private fun AudioRecordingScreen() {
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+        verticalArrangement =
+            Arrangement.Center
     ) {
         Text(
             text = "Audioaufnahme",
-            style = MaterialTheme.typography.headlineMedium
+            style =
+                MaterialTheme.typography
+                    .headlineMedium
         )
-        Spacer(modifier = Modifier.height(24.dp))
+
+        Spacer(
+            modifier =
+                Modifier.height(24.dp)
+        )
 
         Text(
             text = "Smartwatch-Kommunikation",
-            style = MaterialTheme.typography.titleMedium
+            style =
+                MaterialTheme.typography
+                    .titleMedium
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(
+            modifier =
+                Modifier.height(8.dp)
+        )
 
-        Text(text = wearStatus)
+        Text(
+            text = wearStatus
+        )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(
+            modifier =
+                Modifier.height(12.dp)
+        )
 
         Button(
             onClick = {
                 wearCommunication.sendPing()
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier =
+                Modifier.fillMaxWidth()
         ) {
-            Text("PING an Smartwatch senden")
-        }
-
-        //Spacer(modifier = Modifier.height(24.dp))
-
-        Text(text = statusText)
-
-        recordingPath?.let { path ->
-            Spacer(modifier = Modifier.height(16.dp))
-
             Text(
-                text = "Gespeicherte Datei:\n$path",
-                style = MaterialTheme.typography.bodySmall
+                "PING an Smartwatch senden"
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(
+            modifier =
+                Modifier.height(8.dp)
+        )
+
+        Button(
+            onClick = {
+                wearCommunication.prepareSession()
+            },
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Neue Sitzung vorbereiten"
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(8.dp)
+        )
+
+        Button(
+            onClick = {
+                wearCommunication
+                    .startPreparedSession()
+            },
+            enabled =
+                canStartWatchRecording,
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Smartwatch-Sensoraufnahme starten"
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(8.dp)
+        )
+
+        Button(
+            onClick = {
+                wearCommunication
+                    .stopCurrentSession()
+            },
+            enabled =
+                canStopWatchRecording,
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Smartwatch-Sensoraufnahme stoppen"
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(24.dp)
+        )
+
+        Text(
+            text = statusText
+        )
+
+        Spacer(
+            modifier =
+                Modifier.height(8.dp)
+        )
+
+        recordingPath?.let { path ->
+            Spacer(
+                modifier =
+                    Modifier.height(16.dp)
+            )
+
+            Text(
+                text =
+                    "Gespeicherte Datei:\n$path",
+                style =
+                    MaterialTheme.typography
+                        .bodySmall
+            )
+        }
+
+        Spacer(
+            modifier =
+                Modifier.height(24.dp)
+        )
 
         if (!permissionGranted) {
             Button(
                 onClick = {
                     permissionLauncher.launch(
-                        Manifest.permission.RECORD_AUDIO
+                        Manifest.permission
+                            .RECORD_AUDIO
                     )
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier =
+                    Modifier.fillMaxWidth()
             ) {
-                Text("Mikrofonzugriff erlauben")
+                Text(
+                    "Mikrofonzugriff erlauben"
+                )
             }
+
+            Spacer(
+                modifier =
+                    Modifier.height(12.dp)
+            )
         }
 
         Button(
             onClick = {
                 try {
-                    val file = audioRecorder.startRecording()
+                    audioRecorder.startRecording()
 
                     isRecording = true
                     recordingPath = null
-                    statusText = "Aufnahme läuft: Bitte einige Sekunden sprechen."
-                } catch (exception: Exception) {
-                    isRecording = false
+
                     statusText =
-                        "Aufnahme konnte nicht gestartet werden: " +
-                                (exception.message ?: "Unbekannter Fehler")
+                        "Aufnahme läuft: Bitte einige " +
+                                "Sekunden sprechen."
+                } catch (
+                    exception: Exception
+                ) {
+                    isRecording = false
+
+                    statusText =
+                        "Aufnahme konnte nicht gestartet " +
+                                "werden: " +
+                                (
+                                        exception.message
+                                            ?: "Unbekannter Fehler"
+                                        )
                 }
             },
-            enabled = permissionGranted && !isRecording,
-            modifier = Modifier.fillMaxWidth()
+            enabled =
+                permissionGranted &&
+                        !isRecording,
+            modifier =
+                Modifier.fillMaxWidth()
         ) {
-            Text("Aufnahme starten")
+            Text(
+                "Aufnahme starten"
+            )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(
+            modifier =
+                Modifier.height(12.dp)
+        )
 
         Button(
             onClick = {
-                val file = audioRecorder.stopRecording()
+                val file =
+                    audioRecorder.stopRecording()
 
                 isRecording = false
 
-                if (file != null && file.exists()) {
-                    recordingPath = file.absolutePath
-                    statusText = "Aufnahme wurde erfolgreich gespeichert."
+                if (
+                    file != null &&
+                    file.exists()
+                ) {
+                    recordingPath =
+                        file.absolutePath
+
+                    statusText =
+                        "Aufnahme wurde erfolgreich " +
+                                "gespeichert."
                 } else {
                     recordingPath = null
+
                     statusText =
-                        "Die Aufnahme konnte nicht gespeichert werden."
+                        "Die Aufnahme konnte nicht " +
+                                "gespeichert werden."
                 }
             },
             enabled = isRecording,
-            modifier = Modifier.fillMaxWidth()
+            modifier =
+                Modifier.fillMaxWidth()
         ) {
-            Text("Aufnahme stoppen")
+            Text(
+                "Aufnahme stoppen"
+            )
         }
     }
 }

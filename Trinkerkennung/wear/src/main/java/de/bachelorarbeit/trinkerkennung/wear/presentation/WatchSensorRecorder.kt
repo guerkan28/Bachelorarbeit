@@ -50,6 +50,8 @@ class WatchSensorRecorder(
     @Volatile
     private var recordingFailure: Throwable? = null
 
+    private var activeSessionId: String? = null
+
     private var outputFile: File? = null
     private var writer: BufferedWriter? = null
 
@@ -60,18 +62,40 @@ class WatchSensorRecorder(
     private var sessionStartElapsedRealtimeNs = 0L
     private var recordedEventCount = 0L
 
+    /*
+     * Diese Variante bleibt für den bisherigen manuellen
+     * Start-Button auf der Watch erhalten.
+     */
     fun startRecording(): File {
+        return startRecording(
+            sessionId = "manual"
+        )
+    }
+
+    /*
+     * Diese Variante wird später vom Foreground Service
+     * mit der Session-ID des Smartphones verwendet.
+     */
+    fun startRecording(
+        sessionId: String
+    ): File {
+        require(sessionId.isNotBlank()) {
+            "Die Session-ID darf nicht leer sein."
+        }
+
         check(outputFile == null) {
             "Es läuft bereits eine Sensoraufzeichnung."
         }
 
-        val accelerationSensor = checkNotNull(accelerometer) {
-            "Der Beschleunigungssensor ist nicht verfügbar."
-        }
+        val accelerationSensor =
+            checkNotNull(accelerometer) {
+                "Der Beschleunigungssensor ist nicht verfügbar."
+            }
 
-        val rotationSensor = checkNotNull(gyroscope) {
-            "Das Gyroskop ist nicht verfügbar."
-        }
+        val rotationSensor =
+            checkNotNull(gyroscope) {
+                "Das Gyroskop ist nicht verfügbar."
+            }
 
         val recordingDirectory =
             createRecordingDirectory()
@@ -81,9 +105,12 @@ class WatchSensorRecorder(
             Locale.US
         ).format(Date())
 
+        val safeSessionId =
+            sanitizeForFileName(sessionId)
+
         val newOutputFile = File(
             recordingDirectory,
-            "watch_$timestamp.csv"
+            "watch_${safeSessionId}_$timestamp.csv"
         )
 
         val newWriter = BufferedWriter(
@@ -94,7 +121,8 @@ class WatchSensorRecorder(
         )
 
         newWriter.write(
-            "session_start_epoch_ms," +
+            "session_id," +
+                    "session_start_epoch_ms," +
                     "session_start_elapsed_realtime_ns," +
                     "sensor," +
                     "event_timestamp_ns," +
@@ -109,7 +137,9 @@ class WatchSensorRecorder(
         newWriter.flush()
 
         val newRecordingThread =
-            HandlerThread("WatchSensorCsvRecorder").apply {
+            HandlerThread(
+                "WatchSensorCsvRecorder"
+            ).apply {
                 start()
             }
 
@@ -122,6 +152,7 @@ class WatchSensorRecorder(
         sessionStartElapsedRealtimeNs =
             SystemClock.elapsedRealtimeNanos()
 
+        activeSessionId = sessionId
         outputFile = newOutputFile
         writer = newWriter
         recordingThread = newRecordingThread
@@ -169,14 +200,18 @@ class WatchSensorRecorder(
     }
 
     fun stopRecording(): File? {
-        val completedFile = outputFile ?: return null
+        val completedFile =
+            outputFile ?: return null
+
         val handler = recordingHandler
         val thread = recordingThread
 
         acceptsSensorEvents = false
+
         sensorManager.unregisterListener(this)
 
-        val writerClosed = CountDownLatch(1)
+        val writerClosed =
+            CountDownLatch(1)
 
         if (handler != null) {
             val taskAccepted = handler.post {
@@ -212,6 +247,7 @@ class WatchSensorRecorder(
                     recordedEventCount > 0 &&
                     completedFile.exists()
 
+        activeSessionId = null
         writer = null
         outputFile = null
         recordingHandler = null
@@ -233,7 +269,9 @@ class WatchSensorRecorder(
         }
     }
 
-    override fun onSensorChanged(event: SensorEvent) {
+    override fun onSensorChanged(
+        event: SensorEvent
+    ) {
         if (
             !acceptsSensorEvents ||
             recordingFailure != null
@@ -241,30 +279,47 @@ class WatchSensorRecorder(
             return
         }
 
-        val sensorName = when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER ->
-                "ACCELEROMETER"
+        val sessionId =
+            activeSessionId ?: return
 
-            Sensor.TYPE_GYROSCOPE ->
-                "GYROSCOPE"
+        val sensorName =
+            when (event.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER ->
+                    "ACCELEROMETER"
 
-            else ->
-                return
-        }
+                Sensor.TYPE_GYROSCOPE ->
+                    "GYROSCOPE"
+
+                else ->
+                    return
+            }
 
         val relativeTimeNs =
             event.timestamp -
                     sessionStartElapsedRealtimeNs
+
+        /*
+         * Einzelne unmittelbar nach der Registrierung gelieferte
+         * Sensorereignisse können noch vor dem gespeicherten
+         * Sitzungsstart liegen. Diese Werte werden nicht gespeichert.
+         */
+        if (relativeTimeNs < 0L) {
+            return
+        }
 
         val estimatedEpochNs =
             sessionStartEpochMs * 1_000_000L +
                     relativeTimeNs
 
         try {
-            val activeWriter = writer ?: return
+            val activeWriter =
+                writer ?: return
 
             activeWriter.write(
                 buildString {
+                    append(sessionId)
+                    append(",")
+
                     append(sessionStartEpochMs)
                     append(",")
 
@@ -310,8 +365,10 @@ class WatchSensorRecorder(
         sensor: Sensor?,
         accuracy: Int
     ) {
-        // Der aktuelle Genauigkeitsstatus wird
-        // bereits mit jedem Sensorereignis gespeichert.
+        /*
+         * Der aktuelle Genauigkeitsstatus wird bereits
+         * mit jedem Sensorereignis gespeichert.
+         */
     }
 
     private fun createRecordingDirectory(): File {
@@ -333,5 +390,14 @@ class WatchSensorRecorder(
         }
 
         return recordingDirectory
+    }
+
+    private fun sanitizeForFileName(
+        value: String
+    ): String {
+        return value.replace(
+            regex = Regex("[^A-Za-z0-9_-]"),
+            replacement = "_"
+        )
     }
 }
