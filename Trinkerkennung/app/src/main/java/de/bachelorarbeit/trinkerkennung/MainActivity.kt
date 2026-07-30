@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -66,6 +67,12 @@ private fun RecordingSessionScreen() {
         )
     }
 
+    val sessionMetadataStore = remember {
+        SessionMetadataStore(
+            context.applicationContext
+        )
+    }
+
     var wearStatus by remember {
         mutableStateOf(
             "Noch keine Sitzung vorbereitet."
@@ -94,6 +101,10 @@ private fun RecordingSessionScreen() {
         mutableStateOf<String?>(null)
     }
 
+    var metadataRecordingPath by remember {
+        mutableStateOf<String?>(null)
+    }
+
     var permissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -106,11 +117,15 @@ private fun RecordingSessionScreen() {
 
     val wearCommunication = remember(
         audioRecorder,
-        mainHandler
+        mainHandler,
+        sessionMetadataStore
     ) {
         PhoneWearCommunication(
             context =
                 context.applicationContext,
+
+            sessionMetadataStore =
+                sessionMetadataStore,
 
             onStatusChanged = { newStatus ->
                 wearStatus =
@@ -133,7 +148,27 @@ private fun RecordingSessionScreen() {
                     reason ->
 
                 Thread {
-                    audioRecorder.abortRecording()
+                    val abortResult =
+                        audioRecorder.abortRecording()
+
+                    recordAudioStopResult(
+                        sessionMetadataStore =
+                            sessionMetadataStore,
+                        sessionId =
+                            sessionId,
+                        result =
+                            abortResult,
+                        successOverride =
+                            false
+                    )
+
+                    val metadataResult =
+                        runCatching {
+                            sessionMetadataStore
+                                .finalizeSession(
+                                    sessionId
+                                )
+                        }
 
                     mainHandler.post {
                         isPhoneAudioRecording =
@@ -142,12 +177,49 @@ private fun RecordingSessionScreen() {
                         audioRecordingPath =
                             null
 
+                        metadataRecordingPath =
+                            metadataResult
+                                .getOrNull()
+                                ?.absolutePath
+
                         audioStatus =
-                            "Smartphone-Audioaufnahme für " +
-                                    "Sitzung ${sessionId.take(8)} " +
-                                    "wurde verworfen, da die " +
-                                    "Watch-Aufnahme nicht gestartet " +
-                                    "werden konnte: $reason"
+                            buildString {
+                                append(
+                                    "Smartphone-Audioaufnahme " +
+                                            "für Sitzung " +
+                                            "${sessionId.take(8)} " +
+                                            "wurde verworfen."
+                                )
+                                append(
+                                    "\nGrund: "
+                                )
+                                append(reason)
+
+                                metadataResult
+                                    .getOrNull()
+                                    ?.let { metadataFile ->
+                                        append(
+                                            "\nMetadaten-Datei: "
+                                        )
+                                        append(
+                                            metadataFile.name
+                                        )
+                                    }
+
+                                metadataResult
+                                    .exceptionOrNull()
+                                    ?.let { exception ->
+                                        append(
+                                            "\nMetadaten konnten " +
+                                                    "nicht gespeichert " +
+                                                    "werden: "
+                                        )
+                                        append(
+                                            exception.message
+                                                ?: "Unbekannter Fehler"
+                                        )
+                                    }
+                            }
                     }
                 }.apply {
                     name =
@@ -163,104 +235,132 @@ private fun RecordingSessionScreen() {
                     watchFileName ->
 
                 Thread {
-                    val completedAudioFile =
+                    val audioResult =
                         audioRecorder.stopRecording()
+
+                    recordAudioStopResult(
+                        sessionMetadataStore =
+                            sessionMetadataStore,
+                        sessionId =
+                            sessionId,
+                        result =
+                            audioResult
+                    )
+
+                    val metadataResult =
+                        runCatching {
+                            sessionMetadataStore
+                                .finalizeSession(
+                                    sessionId
+                                )
+                        }
 
                     mainHandler.post {
                         isPhoneAudioRecording =
                             false
 
-                        if (
-                            completedAudioFile != null &&
-                            completedAudioFile.exists()
-                        ) {
-                            audioRecordingPath =
-                                completedAudioFile.absolutePath
-
-                            audioStatus =
-                                buildString {
-                                    append(
-                                        "Gemeinsame Sitzung abgeschlossen."
-                                    )
-
-                                    append(
-                                        "\nSession: "
-                                    )
-                                    append(
-                                        sessionId.take(8)
-                                    )
-
-                                    append(
-                                        "\nSmartphone-Audio gespeichert: ja"
-                                    )
-
-                                    append(
-                                        "\nSmartphone-Datei: "
-                                    )
-                                    append(
-                                        completedAudioFile.name
-                                    )
-
-                                    append(
-                                        "\nWatch gespeichert: "
-                                    )
-                                    append(
-                                        if (
-                                            watchRecordingSucceeded
-                                        ) {
-                                            "ja"
-                                        } else {
-                                            "nein"
-                                        }
-                                    )
-
-                                    append(
-                                        "\nWatch-Datei: "
-                                    )
-                                    append(
-                                        watchFileName
-                                            ?: "keine Datei"
-                                    )
+                        val completedAudioFile =
+                            audioResult
+                                ?.file
+                                ?.takeIf {
+                                    audioResult.success &&
+                                            it.exists()
                                 }
-                        } else {
-                            audioRecordingPath =
-                                null
 
-                            audioStatus =
-                                buildString {
-                                    append(
-                                        "Die Watch-Sitzung wurde beendet, "
-                                    )
+                        audioRecordingPath =
+                            completedAudioFile
+                                ?.absolutePath
 
-                                    append(
-                                        "aber die Smartphone-Audiodatei "
-                                    )
+                        metadataRecordingPath =
+                            metadataResult
+                                .getOrNull()
+                                ?.absolutePath
 
-                                    append(
-                                        "konnte nicht gespeichert werden."
-                                    )
+                        audioStatus =
+                            buildString {
+                                append(
+                                    "Gemeinsame Sitzung " +
+                                            "abgeschlossen."
+                                )
+                                append("\nSession: ")
+                                append(
+                                    sessionId.take(8)
+                                )
+                                append(
+                                    "\nSmartphone-Audio " +
+                                            "gespeichert: "
+                                )
+                                append(
+                                    if (
+                                        completedAudioFile !=
+                                        null
+                                    ) {
+                                        "ja"
+                                    } else {
+                                        "nein"
+                                    }
+                                )
+                                append(
+                                    "\nSmartphone-Datei: "
+                                )
+                                append(
+                                    completedAudioFile
+                                        ?.name
+                                        ?: "keine Datei"
+                                )
+                                append(
+                                    "\nWatch gespeichert: "
+                                )
+                                append(
+                                    if (
+                                        watchRecordingSucceeded
+                                    ) {
+                                        "ja"
+                                    } else {
+                                        "nein"
+                                    }
+                                )
+                                append(
+                                    "\nWatch-Datei: "
+                                )
+                                append(
+                                    watchFileName
+                                        ?: "keine Datei"
+                                )
+                                append(
+                                    "\nMetadaten gespeichert: "
+                                )
+                                append(
+                                    if (
+                                        metadataResult.isSuccess
+                                    ) {
+                                        "ja"
+                                    } else {
+                                        "nein"
+                                    }
+                                )
+                                append(
+                                    "\nMetadaten-Datei: "
+                                )
+                                append(
+                                    metadataResult
+                                        .getOrNull()
+                                        ?.name
+                                        ?: "keine Datei"
+                                )
 
-                                    append(
-                                        "\nSession: "
-                                    )
-                                    append(
-                                        sessionId.take(8)
-                                    )
-
-                                    append(
-                                        "\nWatch gespeichert: "
-                                    )
-                                    append(
-                                        if (
-                                            watchRecordingSucceeded
-                                        ) {
-                                            "ja"
-                                        } else {
-                                            "nein"
-                                        }
-                                    )
-                                }
-                        }
+                                metadataResult
+                                    .exceptionOrNull()
+                                    ?.let { exception ->
+                                        append(
+                                            "\nMetadatenfehler: "
+                                        )
+                                        append(
+                                            exception.message
+                                                ?: "Unbekannter Fehler"
+                                        )
+                                    }
+                            }
                     }
                 }.apply {
                     name =
@@ -373,6 +473,12 @@ private fun RecordingSessionScreen() {
 
         Button(
             onClick = {
+                audioRecordingPath =
+                    null
+
+                metadataRecordingPath =
+                    null
+
                 wearCommunication
                     .prepareSession()
             },
@@ -401,16 +507,30 @@ private fun RecordingSessionScreen() {
                     sessionId.isNullOrBlank()
                 ) {
                     audioStatus =
-                        "Es ist keine gültige vorbereitete " +
-                                "Sitzung vorhanden."
+                        "Es ist keine gültige " +
+                                "vorbereitete Sitzung vorhanden."
 
                     return@Button
                 }
 
                 try {
-                    val audioFile =
+                    val audioStartInfo =
                         audioRecorder.startRecording(
-                            sessionId = sessionId
+                            sessionId =
+                                sessionId
+                        )
+
+                    sessionMetadataStore
+                        .recordPhoneAudioStarted(
+                            sessionId =
+                                sessionId,
+                            fileName =
+                                audioStartInfo.file.name,
+                            startEpochMs =
+                                audioStartInfo.startEpochMs,
+                            startElapsedRealtimeNs =
+                                audioStartInfo
+                                    .startElapsedRealtimeNs
                         )
 
                     isPhoneAudioRecording =
@@ -419,28 +539,28 @@ private fun RecordingSessionScreen() {
                     audioRecordingPath =
                         null
 
+                    metadataRecordingPath =
+                        null
+
                     audioStatus =
                         buildString {
                             append(
-                                "Smartphone-Audioaufnahme läuft."
+                                "Smartphone-Audioaufnahme " +
+                                        "läuft."
                             )
-
-                            append(
-                                "\nSession: "
-                            )
+                            append("\nSession: ")
                             append(
                                 sessionId.take(8)
                             )
-
                             append(
                                 "\nVorläufige Datei: "
                             )
                             append(
-                                audioFile.name
+                                audioStartInfo.file.name
                             )
-
                             append(
-                                "\nWarte auf STARTED der Watch."
+                                "\nWarte auf STARTED " +
+                                        "der Watch."
                             )
                         }
 
@@ -449,18 +569,61 @@ private fun RecordingSessionScreen() {
                             .startPreparedSession()
 
                     if (!startRequested) {
-                        audioRecorder
-                            .abortRecording()
+                        sessionMetadataStore
+                            .recordFailure(
+                                sessionId,
+                                "Der gemeinsame Start " +
+                                        "wurde abgelehnt."
+                            )
 
-                        isPhoneAudioRecording =
-                            false
+                        Thread {
+                            val abortResult =
+                                audioRecorder
+                                    .abortRecording()
 
-                        audioRecordingPath =
-                            null
+                            recordAudioStopResult(
+                                sessionMetadataStore =
+                                    sessionMetadataStore,
+                                sessionId =
+                                    sessionId,
+                                result =
+                                    abortResult,
+                                successOverride =
+                                    false
+                            )
 
-                        audioStatus =
-                            "Die gemeinsame Aufnahme " +
-                                    "konnte nicht gestartet werden."
+                            val metadataResult =
+                                runCatching {
+                                    sessionMetadataStore
+                                        .finalizeSession(
+                                            sessionId
+                                        )
+                                }
+
+                            mainHandler.post {
+                                isPhoneAudioRecording =
+                                    false
+
+                                audioRecordingPath =
+                                    null
+
+                                metadataRecordingPath =
+                                    metadataResult
+                                        .getOrNull()
+                                        ?.absolutePath
+
+                                audioStatus =
+                                    "Die gemeinsame " +
+                                            "Aufnahme konnte " +
+                                            "nicht gestartet " +
+                                            "werden."
+                            }
+                        }.apply {
+                            name =
+                                "RejectJointRecording"
+
+                            start()
+                        }
                     }
                 } catch (
                     exception: Exception
@@ -472,8 +635,9 @@ private fun RecordingSessionScreen() {
                         null
 
                     audioStatus =
-                        "Smartphone-Audioaufnahme konnte " +
-                                "nicht gestartet werden: " +
+                        "Smartphone-Audioaufnahme " +
+                                "konnte nicht gestartet " +
+                                "werden: " +
                                 (
                                         exception.message
                                             ?: "Unbekannter Fehler"
@@ -507,7 +671,8 @@ private fun RecordingSessionScreen() {
                     audioStatus =
                         "Watch wird gestoppt. " +
                                 "Die Smartphone-Audioaufnahme " +
-                                "läuft bis zur STOPPED-Bestätigung weiter."
+                                "läuft bis zur STOPPED-" +
+                                "Bestätigung weiter."
                 }
             },
             enabled =
@@ -528,7 +693,7 @@ private fun RecordingSessionScreen() {
 
         Text(
             text =
-                "Smartphone-Audio",
+                "Smartphone-Audio und Metadaten",
             style =
                 MaterialTheme.typography
                     .titleMedium
@@ -552,7 +717,22 @@ private fun RecordingSessionScreen() {
 
             Text(
                 text =
-                    "Gespeicherter Pfad:\n$path",
+                    "Gespeicherte WAV-Datei:\n$path",
+                style =
+                    MaterialTheme.typography
+                        .bodySmall
+            )
+        }
+
+        metadataRecordingPath?.let { path ->
+            Spacer(
+                modifier =
+                    Modifier.height(12.dp)
+            )
+
+            Text(
+                text =
+                    "Gespeicherte Metadaten:\n$path",
                 style =
                     MaterialTheme.typography
                         .bodySmall
@@ -586,4 +766,35 @@ private fun RecordingSessionScreen() {
                 Modifier.height(24.dp)
         )
     }
+}
+
+private fun recordAudioStopResult(
+    sessionMetadataStore: SessionMetadataStore,
+    sessionId: String,
+    result: AudioRecordingResult?,
+    successOverride: Boolean? = null
+) {
+    val stopEpochMs =
+        result?.stopEpochMs
+            ?: System.currentTimeMillis()
+
+    val stopElapsedRealtimeNs =
+        result?.stopElapsedRealtimeNs
+            ?: SystemClock.elapsedRealtimeNanos()
+
+    sessionMetadataStore
+        .recordPhoneAudioStopped(
+            sessionId =
+                sessionId,
+            stopEpochMs =
+                stopEpochMs,
+            stopElapsedRealtimeNs =
+                stopElapsedRealtimeNs,
+            success =
+                successOverride
+                    ?: result?.success
+                    ?: false,
+            fileName =
+                result?.file?.name
+        )
 }

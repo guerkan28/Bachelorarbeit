@@ -7,12 +7,26 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Environment
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class AudioRecordingStartInfo(
+    val file: File,
+    val startEpochMs: Long,
+    val startElapsedRealtimeNs: Long
+)
+
+data class AudioRecordingResult(
+    val file: File?,
+    val stopEpochMs: Long,
+    val stopElapsedRealtimeNs: Long,
+    val success: Boolean
+)
 
 class WavAudioRecorder(
     private val context: Context
@@ -33,13 +47,9 @@ class WavAudioRecorder(
     private var outputFile: File? = null
     private var recordingFailure: Throwable? = null
 
-    /*
-     * Diese Methode wird später für die gemeinsame
-     * Smartphone-Watch-Sitzung verwendet.
-     */
     fun startRecording(
         sessionId: String
-    ): File {
+    ): AudioRecordingStartInfo {
         require(sessionId.isNotBlank()) {
             "Die Session-ID darf nicht leer sein."
         }
@@ -125,13 +135,11 @@ class WavAudioRecorder(
                 "rw"
             )
 
+        val startEpochMs: Long
+        val startElapsedRealtimeNs: Long
+
         try {
             randomAccessFile.setLength(0)
-
-            /*
-             * Platzhalter für den später geschriebenen
-             * WAV-Header.
-             */
             randomAccessFile.write(
                 ByteArray(WAV_HEADER_SIZE)
             )
@@ -145,6 +153,12 @@ class WavAudioRecorder(
                 "Die Audioaufnahme konnte nicht " +
                         "gestartet werden."
             }
+
+            startEpochMs =
+                System.currentTimeMillis()
+
+            startElapsedRealtimeNs =
+                SystemClock.elapsedRealtimeNanos()
         } catch (exception: Exception) {
             randomAccessFile.close()
             recorder.release()
@@ -204,15 +218,26 @@ class WavAudioRecorder(
             start()
         }
 
-        return newOutputFile
+        return AudioRecordingStartInfo(
+            file = newOutputFile,
+            startEpochMs = startEpochMs,
+            startElapsedRealtimeNs =
+                startElapsedRealtimeNs
+        )
     }
 
-    fun stopRecording(): File? {
+    fun stopRecording(): AudioRecordingResult? {
         val recorder =
             audioRecord ?: return null
 
         val completedFile =
             outputFile
+
+        val stopEpochMs =
+            System.currentTimeMillis()
+
+        val stopElapsedRealtimeNs =
+            SystemClock.elapsedRealtimeNanos()
 
         isRecording = false
 
@@ -231,37 +256,68 @@ class WavAudioRecorder(
         recordingThread = null
         outputFile = null
 
-        if (
-            threadStillRunning ||
-            recordingFailure != null ||
-            completedFile == null ||
-            !completedFile.exists() ||
-            completedFile.length() <=
-            WAV_HEADER_SIZE
-        ) {
+        val recordingWasSuccessful =
+            !threadStillRunning &&
+                    recordingFailure == null &&
+                    completedFile != null &&
+                    completedFile.exists() &&
+                    completedFile.length() >
+                    WAV_HEADER_SIZE
+
+        if (!recordingWasSuccessful) {
             completedFile?.delete()
             recordingFailure = null
 
-            return null
+            return AudioRecordingResult(
+                file = null,
+                stopEpochMs = stopEpochMs,
+                stopElapsedRealtimeNs =
+                    stopElapsedRealtimeNs,
+                success = false
+            )
         }
 
-        writeWavHeader(completedFile)
+        val headerWasWritten =
+            runCatching {
+                writeWavHeader(
+                    requireNotNull(completedFile)
+                )
+            }.isSuccess
 
         recordingFailure = null
 
-        return completedFile
+        if (!headerWasWritten) {
+            completedFile?.delete()
+
+            return AudioRecordingResult(
+                file = null,
+                stopEpochMs = stopEpochMs,
+                stopElapsedRealtimeNs =
+                    stopElapsedRealtimeNs,
+                success = false
+            )
+        }
+
+        return AudioRecordingResult(
+            file = completedFile,
+            stopEpochMs = stopEpochMs,
+            stopElapsedRealtimeNs =
+                stopElapsedRealtimeNs,
+            success = true
+        )
     }
 
-    fun abortRecording() {
-        val abortedFile =
+    fun abortRecording(): AudioRecordingResult? {
+        val result =
             stopRecording()
+                ?: return null
 
-        if (
-            abortedFile != null &&
-            abortedFile.exists()
-        ) {
-            abortedFile.delete()
-        }
+        result.file?.delete()
+
+        return result.copy(
+            file = null,
+            success = false
+        )
     }
 
     fun release() {

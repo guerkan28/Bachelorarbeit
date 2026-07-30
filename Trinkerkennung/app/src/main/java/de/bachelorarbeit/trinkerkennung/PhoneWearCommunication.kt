@@ -11,6 +11,8 @@ import java.util.UUID
 
 class PhoneWearCommunication(
     context: Context,
+    private val sessionMetadataStore:
+    SessionMetadataStore,
     private val onStatusChanged: (String) -> Unit,
     private val onSessionControlsChanged: (
         canStart: Boolean,
@@ -79,10 +81,12 @@ class PhoneWearCommunication(
         Handler(Looper.getMainLooper())
 
     @Volatile
-    private var currentSessionId: String? = null
+    private var currentSessionId: String? =
+        null
 
     @Volatile
-    private var currentWatchNodeId: String? = null
+    private var currentWatchNodeId: String? =
+        null
 
     @Volatile
     private var sessionState =
@@ -95,11 +99,9 @@ class PhoneWearCommunication(
             .addListener(this)
             .addOnFailureListener { exception ->
                 updateStatus(
-                    "Nachrichtenempfang konnte nicht aktiviert werden: " +
-                            (
-                                    exception.message
-                                        ?: "Unbekannter Fehler"
-                                    )
+                    "Nachrichtenempfang konnte nicht " +
+                            "aktiviert werden: " +
+                            errorMessage(exception)
                 )
             }
     }
@@ -110,7 +112,8 @@ class PhoneWearCommunication(
 
     fun getPreparedSessionId(): String? {
         return if (
-            sessionState == SessionState.READY
+            sessionState ==
+            SessionState.READY
         ) {
             currentSessionId
         } else {
@@ -150,45 +153,66 @@ class PhoneWearCommunication(
                     )
                     .addOnSuccessListener {
                         updateStatus(
-                            "PING an ${node.displayName} gesendet. " +
-                                    "Warte auf ACK …"
+                            "PING an ${node.displayName} " +
+                                    "gesendet. Warte auf ACK …"
                         )
                     }
                     .addOnFailureListener { exception ->
                         updateStatus(
-                            "PING konnte nicht gesendet werden: " +
-                                    (
-                                            exception.message
-                                                ?: "Unbekannter Fehler"
-                                            )
+                            "PING konnte nicht gesendet " +
+                                    "werden: " +
+                                    errorMessage(exception)
                         )
                     }
             }
             .addOnFailureListener { exception ->
                 updateStatus(
                     "Gerätesuche fehlgeschlagen: " +
-                            (
-                                    exception.message
-                                        ?: "Unbekannter Fehler"
-                                    )
+                            errorMessage(exception)
                 )
             }
     }
 
     fun prepareSession() {
         if (
-            sessionState == SessionState.STARTING ||
-            sessionState == SessionState.RECORDING ||
-            sessionState == SessionState.STOPPING
+            sessionState ==
+            SessionState.STARTING ||
+            sessionState ==
+            SessionState.RECORDING ||
+            sessionState ==
+            SessionState.STOPPING
         ) {
             updateStatus(
-                "Eine laufende Sitzung muss zuerst beendet werden."
+                "Eine laufende Sitzung muss zuerst " +
+                        "beendet werden."
             )
             return
         }
 
+        currentSessionId?.let { previousSessionId ->
+            sessionMetadataStore
+                .discardSession(previousSessionId)
+        }
+
+        if (
+            sessionState !=
+            SessionState.IDLE
+        ) {
+            resetSession()
+        }
+
         val sessionId =
             UUID.randomUUID().toString()
+
+        val phonePrepareEpochMs =
+            System.currentTimeMillis()
+
+        sessionMetadataStore.beginSession(
+            sessionId =
+                sessionId,
+            phonePrepareEpochMs =
+                phonePrepareEpochMs
+        )
 
         currentSessionId =
             sessionId
@@ -201,7 +225,8 @@ class PhoneWearCommunication(
         )
 
         updateStatus(
-            "Bereite Sitzung ${sessionId.take(8)} vor …"
+            "Bereite Sitzung " +
+                    "${sessionId.take(8)} vor …"
         )
 
         nodeClient.connectedNodes
@@ -211,6 +236,9 @@ class PhoneWearCommunication(
                         currentSessionId ==
                         sessionId
                     ) {
+                        sessionMetadataStore
+                            .discardSession(sessionId)
+
                         resetSession()
                     }
 
@@ -241,7 +269,7 @@ class PhoneWearCommunication(
                         ";phone_prepare_epoch_ms="
                     )
                     append(
-                        System.currentTimeMillis()
+                        phonePrepareEpochMs
                     )
                 }.toByteArray(
                     StandardCharsets.UTF_8
@@ -262,8 +290,8 @@ class PhoneWearCommunication(
                         ) {
                             updateStatus(
                                 "PREPARE für Sitzung " +
-                                        "${sessionId.take(8)} gesendet. " +
-                                        "Warte auf READY …"
+                                        "${sessionId.take(8)} " +
+                                        "gesendet. Warte auf READY …"
                             )
                         }
                     }
@@ -272,15 +300,16 @@ class PhoneWearCommunication(
                             currentSessionId ==
                             sessionId
                         ) {
+                            sessionMetadataStore
+                                .discardSession(sessionId)
+
                             resetSession()
                         }
 
                         updateStatus(
-                            "PREPARE konnte nicht gesendet werden: " +
-                                    (
-                                            exception.message
-                                                ?: "Unbekannter Fehler"
-                                            )
+                            "PREPARE konnte nicht gesendet " +
+                                    "werden: " +
+                                    errorMessage(exception)
                         )
                     }
             }
@@ -289,15 +318,15 @@ class PhoneWearCommunication(
                     currentSessionId ==
                     sessionId
                 ) {
+                    sessionMetadataStore
+                        .discardSession(sessionId)
+
                     resetSession()
                 }
 
                 updateStatus(
                     "Gerätesuche fehlgeschlagen: " +
-                            (
-                                    exception.message
-                                        ?: "Unbekannter Fehler"
-                                    )
+                            errorMessage(exception)
                 )
             }
     }
@@ -308,10 +337,9 @@ class PhoneWearCommunication(
             SessionState.READY
         ) {
             updateStatus(
-                "Die Smartwatch ist noch nicht für eine " +
-                        "Aufnahme bereit."
+                "Die Smartwatch ist noch nicht für " +
+                        "eine Aufnahme bereit."
             )
-
             return false
         }
 
@@ -325,15 +353,34 @@ class PhoneWearCommunication(
             sessionId.isNullOrBlank() ||
             watchNodeId.isNullOrBlank()
         ) {
+            if (!sessionId.isNullOrBlank()) {
+                sessionMetadataStore
+                    .recordFailure(
+                        sessionId,
+                        "Ungültige Verbindungsdaten " +
+                                "beim Sitzungsstart."
+                    )
+            }
+
             resetSession()
 
             updateStatus(
                 "Die vorbereitete Sitzung enthält " +
                         "keine gültigen Verbindungsdaten."
             )
-
             return false
         }
+
+        val phoneStartCommandEpochMs =
+            System.currentTimeMillis()
+
+        sessionMetadataStore
+            .recordStartCommand(
+                sessionId =
+                    sessionId,
+                phoneStartCommandEpochMs =
+                    phoneStartCommandEpochMs
+            )
 
         updateSessionState(
             SessionState.STARTING
@@ -347,15 +394,15 @@ class PhoneWearCommunication(
                 ";phone_start_command_epoch_ms="
             )
             append(
-                System.currentTimeMillis()
+                phoneStartCommandEpochMs
             )
         }.toByteArray(
             StandardCharsets.UTF_8
         )
 
         updateStatus(
-            "Starte gemeinsame Aufnahme für Sitzung " +
-                    "${sessionId.take(8)} …"
+            "Starte gemeinsame Aufnahme für " +
+                    "Sitzung ${sessionId.take(8)} …"
         )
 
         messageClient
@@ -373,26 +420,32 @@ class PhoneWearCommunication(
                 ) {
                     updateStatus(
                         "START für Sitzung " +
-                                "${sessionId.take(8)} gesendet. " +
-                                "Warte auf STARTED …"
+                                "${sessionId.take(8)} " +
+                                "gesendet. Warte auf STARTED …"
                     )
                 }
             }
             .addOnFailureListener { exception ->
-                val reason =
-                    exception.message
-                        ?: "Unbekannter Fehler"
-
                 if (
-                    currentSessionId ==
-                    sessionId &&
-                    sessionState ==
+                    currentSessionId !=
+                    sessionId ||
+                    sessionState !=
                     SessionState.STARTING
                 ) {
-                    updateSessionState(
-                        SessionState.READY
-                    )
+                    return@addOnFailureListener
                 }
+
+                val reason =
+                    errorMessage(exception)
+
+                sessionMetadataStore
+                    .recordFailure(
+                        sessionId,
+                        "START konnte nicht gesendet " +
+                                "werden: $reason"
+                    )
+
+                resetSession()
 
                 updateStatus(
                     "START konnte nicht gesendet werden: " +
@@ -417,7 +470,6 @@ class PhoneWearCommunication(
                 "Es läuft derzeit keine bestätigte " +
                         "gemeinsame Aufnahme."
             )
-
             return false
         }
 
@@ -437,9 +489,19 @@ class PhoneWearCommunication(
                 "Die laufende Sitzung enthält keine " +
                         "gültigen Verbindungsdaten."
             )
-
             return false
         }
+
+        val phoneStopCommandEpochMs =
+            System.currentTimeMillis()
+
+        sessionMetadataStore
+            .recordStopCommand(
+                sessionId =
+                    sessionId,
+                phoneStopCommandEpochMs =
+                    phoneStopCommandEpochMs
+            )
 
         updateSessionState(
             SessionState.STOPPING
@@ -453,15 +515,15 @@ class PhoneWearCommunication(
                 ";phone_stop_command_epoch_ms="
             )
             append(
-                System.currentTimeMillis()
+                phoneStopCommandEpochMs
             )
         }.toByteArray(
             StandardCharsets.UTF_8
         )
 
         updateStatus(
-            "Beende gemeinsame Aufnahme für Sitzung " +
-                    "${sessionId.take(8)} …"
+            "Beende gemeinsame Aufnahme für " +
+                    "Sitzung ${sessionId.take(8)} …"
         )
 
         messageClient
@@ -479,8 +541,8 @@ class PhoneWearCommunication(
                 ) {
                     updateStatus(
                         "STOP für Sitzung " +
-                                "${sessionId.take(8)} gesendet. " +
-                                "Warte auf STOPPED …"
+                                "${sessionId.take(8)} " +
+                                "gesendet. Warte auf STOPPED …"
                     )
                 }
             }
@@ -498,10 +560,7 @@ class PhoneWearCommunication(
 
                 updateStatus(
                     "STOP konnte nicht gesendet werden: " +
-                            (
-                                    exception.message
-                                        ?: "Unbekannter Fehler"
-                                    )
+                            errorMessage(exception)
                 )
             }
 
@@ -512,29 +571,25 @@ class PhoneWearCommunication(
         messageEvent: MessageEvent
     ) {
         when (messageEvent.path) {
-            ACK_PATH -> {
+            ACK_PATH ->
                 handlePingAcknowledgement(
                     messageEvent
                 )
-            }
 
-            READY_PATH -> {
+            READY_PATH ->
                 handleSessionReady(
                     messageEvent
                 )
-            }
 
-            STARTED_PATH -> {
+            STARTED_PATH ->
                 handleSessionStarted(
                     messageEvent
                 )
-            }
 
-            STOPPED_PATH -> {
+            STOPPED_PATH ->
                 handleSessionStopped(
                     messageEvent
                 )
-            }
         }
     }
 
@@ -565,8 +620,9 @@ class PhoneWearCommunication(
             watchTimestampMs == null
         ) {
             updateStatus(
-                "ACK empfangen, aber Zeitstempel konnten " +
-                        "nicht ausgewertet werden:\n$payload"
+                "ACK empfangen, aber Zeitstempel " +
+                        "konnten nicht ausgewertet werden:\n" +
+                        payload
             )
             return
         }
@@ -580,31 +636,23 @@ class PhoneWearCommunication(
                 append(
                     "ACK von der Smartwatch empfangen."
                 )
-
                 append(
                     "\nRound-Trip-Time: "
                 )
                 append(roundTripTimeMs)
                 append(" ms")
-
                 append(
                     "\nSmartphone Start: "
                 )
-                append(
-                    phoneSendTimestampMs
-                )
-
+                append(phoneSendTimestampMs)
                 append(
                     "\nWatch Verarbeitung: "
                 )
                 append(watchTimestampMs)
-
                 append(
                     "\nSmartphone Empfang: "
                 )
-                append(
-                    phoneReceiveTimestampMs
-                )
+                append(phoneReceiveTimestampMs)
             }
         )
     }
@@ -612,24 +660,24 @@ class PhoneWearCommunication(
     private fun handleSessionReady(
         messageEvent: MessageEvent
     ) {
-        val payload =
-            messageEvent.data.toString(
-                StandardCharsets.UTF_8
-            )
+        val phoneReadyReceivedEpochMs =
+            System.currentTimeMillis()
 
         val values =
-            parsePayload(payload)
+            parsePayload(
+                messageEvent.data.toString(
+                    StandardCharsets.UTF_8
+                )
+            )
 
         val receivedSessionId =
             values["session_id"]
 
         if (
             !isExpectedSessionMessage(
-                messageEvent =
-                    messageEvent,
-                receivedSessionId =
-                    receivedSessionId,
-                messageName = "READY"
+                messageEvent,
+                receivedSessionId,
+                "READY"
             )
         ) {
             return
@@ -644,31 +692,42 @@ class PhoneWearCommunication(
             return
         }
 
+        val confirmedSessionId =
+            receivedSessionId
+                ?: return
+
+        val watchReadyEpochMs =
+            values["watch_ready_epoch_ms"]
+                ?.toLongOrNull()
+
+        sessionMetadataStore.recordReady(
+            sessionId =
+                confirmedSessionId,
+            phoneReadyReceivedEpochMs =
+                phoneReadyReceivedEpochMs,
+            watchReadyEpochMs =
+                watchReadyEpochMs
+        )
+
         updateSessionState(
             SessionState.READY
         )
-
-        val watchReadyTimestamp =
-            values["watch_ready_epoch_ms"]
-                ?: "unbekannt"
 
         updateStatus(
             buildString {
                 append(
                     "Smartwatch ist bereit."
                 )
-
                 append("\nSession: ")
                 append(
-                    receivedSessionId
-                        ?.take(8)
+                    confirmedSessionId.take(8)
                 )
-
                 append(
                     "\nWatch READY: "
                 )
                 append(
-                    watchReadyTimestamp
+                    watchReadyEpochMs
+                        ?: "unbekannt"
                 )
             }
         )
@@ -677,24 +736,24 @@ class PhoneWearCommunication(
     private fun handleSessionStarted(
         messageEvent: MessageEvent
     ) {
-        val payload =
-            messageEvent.data.toString(
-                StandardCharsets.UTF_8
-            )
+        val phoneStartedReceivedEpochMs =
+            System.currentTimeMillis()
 
         val values =
-            parsePayload(payload)
+            parsePayload(
+                messageEvent.data.toString(
+                    StandardCharsets.UTF_8
+                )
+            )
 
         val receivedSessionId =
             values["session_id"]
 
         if (
             !isExpectedSessionMessage(
-                messageEvent =
-                    messageEvent,
-                receivedSessionId =
-                    receivedSessionId,
-                messageName = "STARTED"
+                messageEvent,
+                receivedSessionId,
+                "STARTED"
             )
         ) {
             return
@@ -709,42 +768,58 @@ class PhoneWearCommunication(
             return
         }
 
-        updateSessionState(
-            SessionState.RECORDING
-        )
+        val confirmedSessionId =
+            receivedSessionId
+                ?: return
 
-        val watchStartTimestamp =
+        val watchStartEpochMs =
             values["watch_start_epoch_ms"]
-                ?: "unbekannt"
+                ?.toLongOrNull()
 
         val watchFileName =
             values["watch_file_name"]
-                ?: "unbekannt"
+                ?.takeUnless {
+                    it == "none" ||
+                            it == "unbekannt"
+                }
+
+        sessionMetadataStore.recordStarted(
+            sessionId =
+                confirmedSessionId,
+            phoneStartedReceivedEpochMs =
+                phoneStartedReceivedEpochMs,
+            watchStartEpochMs =
+                watchStartEpochMs,
+            watchFileName =
+                watchFileName
+        )
+
+        updateSessionState(
+            SessionState.RECORDING
+        )
 
         updateStatus(
             buildString {
                 append(
                     "Gemeinsame Aufnahme läuft."
                 )
-
                 append("\nSession: ")
                 append(
-                    receivedSessionId
-                        ?.take(8)
+                    confirmedSessionId.take(8)
                 )
-
                 append(
                     "\nWatch STARTED: "
                 )
                 append(
-                    watchStartTimestamp
+                    watchStartEpochMs
+                        ?: "unbekannt"
                 )
-
                 append(
                     "\nWatch-Datei: "
                 )
                 append(
                     watchFileName
+                        ?: "unbekannt"
                 )
             }
         )
@@ -753,24 +828,24 @@ class PhoneWearCommunication(
     private fun handleSessionStopped(
         messageEvent: MessageEvent
     ) {
-        val payload =
-            messageEvent.data.toString(
-                StandardCharsets.UTF_8
-            )
+        val phoneStoppedReceivedEpochMs =
+            System.currentTimeMillis()
 
         val values =
-            parsePayload(payload)
+            parsePayload(
+                messageEvent.data.toString(
+                    StandardCharsets.UTF_8
+                )
+            )
 
         val receivedSessionId =
             values["session_id"]
 
         if (
             !isExpectedSessionMessage(
-                messageEvent =
-                    messageEvent,
-                receivedSessionId =
-                    receivedSessionId,
-                messageName = "STOPPED"
+                messageEvent,
+                receivedSessionId,
+                "STOPPED"
             )
         ) {
             return
@@ -789,9 +864,9 @@ class PhoneWearCommunication(
             receivedSessionId
                 ?: return
 
-        val watchStopTimestamp =
+        val watchStopEpochMs =
             values["watch_stop_epoch_ms"]
-                ?: "unbekannt"
+                ?.toLongOrNull()
 
         val watchRecordingSucceeded =
             values["recording_success"] ==
@@ -803,9 +878,18 @@ class PhoneWearCommunication(
                     it == "none"
                 }
 
-        val displayedWatchFileName =
-            watchFileName
-                ?: "keine Datei"
+        sessionMetadataStore.recordStopped(
+            sessionId =
+                confirmedSessionId,
+            phoneStoppedReceivedEpochMs =
+                phoneStoppedReceivedEpochMs,
+            watchStopEpochMs =
+                watchStopEpochMs,
+            watchRecordingSuccess =
+                watchRecordingSucceeded,
+            watchFileName =
+                watchFileName
+        )
 
         resetSession()
 
@@ -814,13 +898,10 @@ class PhoneWearCommunication(
                 append(
                     "Smartwatch-Aufnahme beendet."
                 )
-
                 append("\nSession: ")
                 append(
-                    confirmedSessionId
-                        .take(8)
+                    confirmedSessionId.take(8)
                 )
-
                 append(
                     "\nWatch erfolgreich gespeichert: "
                 )
@@ -833,19 +914,19 @@ class PhoneWearCommunication(
                         "nein"
                     }
                 )
-
                 append(
                     "\nWatch STOPPED: "
                 )
                 append(
-                    watchStopTimestamp
+                    watchStopEpochMs
+                        ?: "unbekannt"
                 )
-
                 append(
                     "\nWatch-Datei: "
                 )
                 append(
-                    displayedWatchFileName
+                    watchFileName
+                        ?: "keine Datei"
                 )
             }
         )
@@ -873,9 +954,9 @@ class PhoneWearCommunication(
             expectedSessionId.isNullOrBlank()
         ) {
             updateStatus(
-                "$messageName ohne gültige Session-ID empfangen."
+                "$messageName ohne gültige " +
+                        "Session-ID empfangen."
             )
-
             return false
         }
 
@@ -884,9 +965,9 @@ class PhoneWearCommunication(
             expectedSessionId
         ) {
             updateStatus(
-                "$messageName gehört zu einer anderen Sitzung."
+                "$messageName gehört zu einer " +
+                        "anderen Sitzung."
             )
-
             return false
         }
 
@@ -896,9 +977,9 @@ class PhoneWearCommunication(
             expectedWatchNodeId
         ) {
             updateStatus(
-                "$messageName wurde von einer anderen Watch empfangen."
+                "$messageName wurde von einer " +
+                        "anderen Watch empfangen."
             )
-
             return false
         }
 
@@ -959,15 +1040,13 @@ class PhoneWearCommunication(
                 } else {
                     val key =
                         part.substring(
-                            startIndex = 0,
-                            endIndex =
-                                separatorIndex
+                            0,
+                            separatorIndex
                         ).trim()
 
                     val value =
                         part.substring(
-                            startIndex =
-                                separatorIndex + 1
+                            separatorIndex + 1
                         ).trim()
 
                     key to value
@@ -982,5 +1061,12 @@ class PhoneWearCommunication(
         mainHandler.post {
             onStatusChanged(text)
         }
+    }
+
+    private fun errorMessage(
+        exception: Exception
+    ): String {
+        return exception.message
+            ?: "Unbekannter Fehler"
     }
 }
