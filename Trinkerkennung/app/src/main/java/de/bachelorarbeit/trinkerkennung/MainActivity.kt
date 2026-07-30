@@ -3,6 +3,8 @@ package de.bachelorarbeit.trinkerkennung
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,20 +43,38 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TrinkerkennungTheme {
-                AudioRecordingScreen()
+                RecordingSessionScreen()
             }
         }
     }
 }
 
 @Composable
-private fun AudioRecordingScreen() {
+private fun RecordingSessionScreen() {
     val context =
         LocalContext.current
 
+    val mainHandler = remember {
+        Handler(
+            Looper.getMainLooper()
+        )
+    }
+
+    val audioRecorder = remember {
+        WavAudioRecorder(
+            context.applicationContext
+        )
+    }
+
     var wearStatus by remember {
         mutableStateOf(
-            "Noch keine Testnachricht gesendet."
+            "Noch keine Sitzung vorbereitet."
+        )
+    }
+
+    var audioStatus by remember {
+        mutableStateOf(
+            "Smartphone-Audioaufnahme ist bereit."
         )
     }
 
@@ -64,13 +86,37 @@ private fun AudioRecordingScreen() {
         mutableStateOf(false)
     }
 
-    val wearCommunication = remember {
+    var isPhoneAudioRecording by remember {
+        mutableStateOf(false)
+    }
+
+    var audioRecordingPath by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var permissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val wearCommunication = remember(
+        audioRecorder,
+        mainHandler
+    ) {
         PhoneWearCommunication(
             context =
                 context.applicationContext,
+
             onStatusChanged = { newStatus ->
-                wearStatus = newStatus
+                wearStatus =
+                    newStatus
             },
+
             onSessionControlsChanged = {
                     canStart,
                     canStop ->
@@ -80,6 +126,148 @@ private fun AudioRecordingScreen() {
 
                 canStopWatchRecording =
                     canStop
+            },
+
+            onSessionStartFailed = {
+                    sessionId,
+                    reason ->
+
+                Thread {
+                    audioRecorder.abortRecording()
+
+                    mainHandler.post {
+                        isPhoneAudioRecording =
+                            false
+
+                        audioRecordingPath =
+                            null
+
+                        audioStatus =
+                            "Smartphone-Audioaufnahme für " +
+                                    "Sitzung ${sessionId.take(8)} " +
+                                    "wurde verworfen, da die " +
+                                    "Watch-Aufnahme nicht gestartet " +
+                                    "werden konnte: $reason"
+                    }
+                }.apply {
+                    name =
+                        "AbortPhoneAudioRecording"
+
+                    start()
+                }
+            },
+
+            onSessionStopped = {
+                    sessionId,
+                    watchRecordingSucceeded,
+                    watchFileName ->
+
+                Thread {
+                    val completedAudioFile =
+                        audioRecorder.stopRecording()
+
+                    mainHandler.post {
+                        isPhoneAudioRecording =
+                            false
+
+                        if (
+                            completedAudioFile != null &&
+                            completedAudioFile.exists()
+                        ) {
+                            audioRecordingPath =
+                                completedAudioFile.absolutePath
+
+                            audioStatus =
+                                buildString {
+                                    append(
+                                        "Gemeinsame Sitzung abgeschlossen."
+                                    )
+
+                                    append(
+                                        "\nSession: "
+                                    )
+                                    append(
+                                        sessionId.take(8)
+                                    )
+
+                                    append(
+                                        "\nSmartphone-Audio gespeichert: ja"
+                                    )
+
+                                    append(
+                                        "\nSmartphone-Datei: "
+                                    )
+                                    append(
+                                        completedAudioFile.name
+                                    )
+
+                                    append(
+                                        "\nWatch gespeichert: "
+                                    )
+                                    append(
+                                        if (
+                                            watchRecordingSucceeded
+                                        ) {
+                                            "ja"
+                                        } else {
+                                            "nein"
+                                        }
+                                    )
+
+                                    append(
+                                        "\nWatch-Datei: "
+                                    )
+                                    append(
+                                        watchFileName
+                                            ?: "keine Datei"
+                                    )
+                                }
+                        } else {
+                            audioRecordingPath =
+                                null
+
+                            audioStatus =
+                                buildString {
+                                    append(
+                                        "Die Watch-Sitzung wurde beendet, "
+                                    )
+
+                                    append(
+                                        "aber die Smartphone-Audiodatei "
+                                    )
+
+                                    append(
+                                        "konnte nicht gespeichert werden."
+                                    )
+
+                                    append(
+                                        "\nSession: "
+                                    )
+                                    append(
+                                        sessionId.take(8)
+                                    )
+
+                                    append(
+                                        "\nWatch gespeichert: "
+                                    )
+                                    append(
+                                        if (
+                                            watchRecordingSucceeded
+                                        ) {
+                                            "ja"
+                                        } else {
+                                            "nein"
+                                        }
+                                    )
+                                }
+                        }
+                    }
+                }.apply {
+                    name =
+                        "FinalizePhoneAudioRecording"
+
+                    start()
+                }
             }
         )
     }
@@ -94,39 +282,12 @@ private fun AudioRecordingScreen() {
         }
     }
 
-    val audioRecorder = remember {
-        WavAudioRecorder(
-            context.applicationContext
-        )
-    }
-
-    var permissionGranted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO
-            ) ==
-                    PackageManager.PERMISSION_GRANTED
-        )
-    }
-
-    var isRecording by remember {
-        mutableStateOf(false)
-    }
-
-    var statusText by remember {
-        mutableStateOf(
-            if (permissionGranted) {
-                "Bereit für eine Testaufnahme."
-            } else {
-                "Die Mikrofonberechtigung wurde " +
-                        "noch nicht erteilt."
-            }
-        )
-    }
-
-    var recordingPath by remember {
-        mutableStateOf<String?>(null)
+    DisposableEffect(
+        audioRecorder
+    ) {
+        onDispose {
+            audioRecorder.release()
+        }
     }
 
     val permissionLauncher =
@@ -135,9 +296,10 @@ private fun AudioRecordingScreen() {
                 ActivityResultContracts
                     .RequestPermission()
         ) { granted ->
-            permissionGranted = granted
+            permissionGranted =
+                granted
 
-            statusText =
+            audioStatus =
                 if (granted) {
                     "Mikrofonberechtigung wurde erteilt."
                 } else {
@@ -145,16 +307,12 @@ private fun AudioRecordingScreen() {
                 }
         }
 
-    DisposableEffect(audioRecorder) {
-        onDispose {
-            audioRecorder.stopRecording()
-            audioRecorder.release()
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
             .padding(24.dp),
         horizontalAlignment =
             Alignment.CenterHorizontally,
@@ -162,7 +320,8 @@ private fun AudioRecordingScreen() {
             Arrangement.Center
     ) {
         Text(
-            text = "Audioaufnahme",
+            text =
+                "Gemeinsame Aufnahmesitzung",
             style =
                 MaterialTheme.typography
                     .headlineMedium
@@ -174,7 +333,8 @@ private fun AudioRecordingScreen() {
         )
 
         Text(
-            text = "Smartwatch-Kommunikation",
+            text =
+                "Smartwatch-Kommunikation",
             style =
                 MaterialTheme.typography
                     .titleMedium
@@ -213,8 +373,11 @@ private fun AudioRecordingScreen() {
 
         Button(
             onClick = {
-                wearCommunication.prepareSession()
+                wearCommunication
+                    .prepareSession()
             },
+            enabled =
+                !isPhoneAudioRecording,
             modifier =
                 Modifier.fillMaxWidth()
         ) {
@@ -230,16 +393,102 @@ private fun AudioRecordingScreen() {
 
         Button(
             onClick = {
-                wearCommunication
-                    .startPreparedSession()
+                val sessionId =
+                    wearCommunication
+                        .getPreparedSessionId()
+
+                if (
+                    sessionId.isNullOrBlank()
+                ) {
+                    audioStatus =
+                        "Es ist keine gültige vorbereitete " +
+                                "Sitzung vorhanden."
+
+                    return@Button
+                }
+
+                try {
+                    val audioFile =
+                        audioRecorder.startRecording(
+                            sessionId = sessionId
+                        )
+
+                    isPhoneAudioRecording =
+                        true
+
+                    audioRecordingPath =
+                        null
+
+                    audioStatus =
+                        buildString {
+                            append(
+                                "Smartphone-Audioaufnahme läuft."
+                            )
+
+                            append(
+                                "\nSession: "
+                            )
+                            append(
+                                sessionId.take(8)
+                            )
+
+                            append(
+                                "\nVorläufige Datei: "
+                            )
+                            append(
+                                audioFile.name
+                            )
+
+                            append(
+                                "\nWarte auf STARTED der Watch."
+                            )
+                        }
+
+                    val startRequested =
+                        wearCommunication
+                            .startPreparedSession()
+
+                    if (!startRequested) {
+                        audioRecorder
+                            .abortRecording()
+
+                        isPhoneAudioRecording =
+                            false
+
+                        audioRecordingPath =
+                            null
+
+                        audioStatus =
+                            "Die gemeinsame Aufnahme " +
+                                    "konnte nicht gestartet werden."
+                    }
+                } catch (
+                    exception: Exception
+                ) {
+                    isPhoneAudioRecording =
+                        false
+
+                    audioRecordingPath =
+                        null
+
+                    audioStatus =
+                        "Smartphone-Audioaufnahme konnte " +
+                                "nicht gestartet werden: " +
+                                (
+                                        exception.message
+                                            ?: "Unbekannter Fehler"
+                                        )
+                }
             },
             enabled =
-                canStartWatchRecording,
+                permissionGranted &&
+                        canStartWatchRecording &&
+                        !isPhoneAudioRecording,
             modifier =
                 Modifier.fillMaxWidth()
         ) {
             Text(
-                "Smartwatch-Sensoraufnahme starten"
+                "Gemeinsame Aufnahme starten"
             )
         }
 
@@ -250,16 +499,25 @@ private fun AudioRecordingScreen() {
 
         Button(
             onClick = {
-                wearCommunication
-                    .stopCurrentSession()
+                val stopRequested =
+                    wearCommunication
+                        .stopCurrentSession()
+
+                if (stopRequested) {
+                    audioStatus =
+                        "Watch wird gestoppt. " +
+                                "Die Smartphone-Audioaufnahme " +
+                                "läuft bis zur STOPPED-Bestätigung weiter."
+                }
             },
             enabled =
-                canStopWatchRecording,
+                canStopWatchRecording &&
+                        isPhoneAudioRecording,
             modifier =
                 Modifier.fillMaxWidth()
         ) {
             Text(
-                "Smartwatch-Sensoraufnahme stoppen"
+                "Gemeinsame Aufnahme stoppen"
             )
         }
 
@@ -269,7 +527,11 @@ private fun AudioRecordingScreen() {
         )
 
         Text(
-            text = statusText
+            text =
+                "Smartphone-Audio",
+            style =
+                MaterialTheme.typography
+                    .titleMedium
         )
 
         Spacer(
@@ -277,27 +539,32 @@ private fun AudioRecordingScreen() {
                 Modifier.height(8.dp)
         )
 
-        recordingPath?.let { path ->
+        Text(
+            text =
+                audioStatus
+        )
+
+        audioRecordingPath?.let { path ->
             Spacer(
                 modifier =
-                    Modifier.height(16.dp)
+                    Modifier.height(12.dp)
             )
 
             Text(
                 text =
-                    "Gespeicherte Datei:\n$path",
+                    "Gespeicherter Pfad:\n$path",
                 style =
                     MaterialTheme.typography
                         .bodySmall
             )
         }
 
-        Spacer(
-            modifier =
-                Modifier.height(24.dp)
-        )
-
         if (!permissionGranted) {
+            Spacer(
+                modifier =
+                    Modifier.height(16.dp)
+            )
+
             Button(
                 onClick = {
                     permissionLauncher.launch(
@@ -312,86 +579,11 @@ private fun AudioRecordingScreen() {
                     "Mikrofonzugriff erlauben"
                 )
             }
-
-            Spacer(
-                modifier =
-                    Modifier.height(12.dp)
-            )
-        }
-
-        Button(
-            onClick = {
-                try {
-                    audioRecorder.startRecording()
-
-                    isRecording = true
-                    recordingPath = null
-
-                    statusText =
-                        "Aufnahme läuft: Bitte einige " +
-                                "Sekunden sprechen."
-                } catch (
-                    exception: Exception
-                ) {
-                    isRecording = false
-
-                    statusText =
-                        "Aufnahme konnte nicht gestartet " +
-                                "werden: " +
-                                (
-                                        exception.message
-                                            ?: "Unbekannter Fehler"
-                                        )
-                }
-            },
-            enabled =
-                permissionGranted &&
-                        !isRecording,
-            modifier =
-                Modifier.fillMaxWidth()
-        ) {
-            Text(
-                "Aufnahme starten"
-            )
         }
 
         Spacer(
             modifier =
-                Modifier.height(12.dp)
+                Modifier.height(24.dp)
         )
-
-        Button(
-            onClick = {
-                val file =
-                    audioRecorder.stopRecording()
-
-                isRecording = false
-
-                if (
-                    file != null &&
-                    file.exists()
-                ) {
-                    recordingPath =
-                        file.absolutePath
-
-                    statusText =
-                        "Aufnahme wurde erfolgreich " +
-                                "gespeichert."
-                } else {
-                    recordingPath = null
-
-                    statusText =
-                        "Die Aufnahme konnte nicht " +
-                                "gespeichert werden."
-                }
-            },
-            enabled = isRecording,
-            modifier =
-                Modifier.fillMaxWidth()
-        ) {
-            Text(
-                "Aufnahme stoppen"
-            )
-        }
     }
 }

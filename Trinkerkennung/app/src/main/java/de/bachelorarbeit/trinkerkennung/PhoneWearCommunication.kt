@@ -15,6 +15,15 @@ class PhoneWearCommunication(
     private val onSessionControlsChanged: (
         canStart: Boolean,
         canStop: Boolean
+    ) -> Unit,
+    private val onSessionStartFailed: (
+        sessionId: String,
+        reason: String
+    ) -> Unit,
+    private val onSessionStopped: (
+        sessionId: String,
+        watchRecordingSucceeded: Boolean,
+        watchFileName: String?
     ) -> Unit
 ) : MessageClient.OnMessageReceivedListener {
 
@@ -57,10 +66,14 @@ class PhoneWearCommunication(
         context.applicationContext
 
     private val messageClient =
-        Wearable.getMessageClient(applicationContext)
+        Wearable.getMessageClient(
+            applicationContext
+        )
 
     private val nodeClient =
-        Wearable.getNodeClient(applicationContext)
+        Wearable.getNodeClient(
+            applicationContext
+        )
 
     private val mainHandler =
         Handler(Looper.getMainLooper())
@@ -95,6 +108,16 @@ class PhoneWearCommunication(
         messageClient.removeListener(this)
     }
 
+    fun getPreparedSessionId(): String? {
+        return if (
+            sessionState == SessionState.READY
+        ) {
+            currentSessionId
+        } else {
+            null
+        }
+    }
+
     fun sendPing() {
         updateStatus(
             "Suche verbundene Smartwatch …"
@@ -116,7 +139,8 @@ class PhoneWearCommunication(
                             StandardCharsets.UTF_8
                         )
 
-                val node = nodes.first()
+                val node =
+                    nodes.first()
 
                 messageClient
                     .sendMessage(
@@ -166,8 +190,11 @@ class PhoneWearCommunication(
         val sessionId =
             UUID.randomUUID().toString()
 
-        currentSessionId = sessionId
-        currentWatchNodeId = null
+        currentSessionId =
+            sessionId
+
+        currentWatchNodeId =
+            null
 
         updateSessionState(
             SessionState.PREPARING
@@ -180,7 +207,10 @@ class PhoneWearCommunication(
         nodeClient.connectedNodes
             .addOnSuccessListener { nodes ->
                 if (nodes.isEmpty()) {
-                    if (currentSessionId == sessionId) {
+                    if (
+                        currentSessionId ==
+                        sessionId
+                    ) {
                         resetSession()
                     }
 
@@ -190,21 +220,32 @@ class PhoneWearCommunication(
                     return@addOnSuccessListener
                 }
 
-                val node = nodes.first()
+                val node =
+                    nodes.first()
 
-                if (currentSessionId != sessionId) {
+                if (
+                    currentSessionId !=
+                    sessionId
+                ) {
                     return@addOnSuccessListener
                 }
 
-                currentWatchNodeId = node.id
+                currentWatchNodeId =
+                    node.id
 
                 val payload = buildString {
                     append("session_id=")
                     append(sessionId)
 
-                    append(";phone_prepare_epoch_ms=")
-                    append(System.currentTimeMillis())
-                }.toByteArray(StandardCharsets.UTF_8)
+                    append(
+                        ";phone_prepare_epoch_ms="
+                    )
+                    append(
+                        System.currentTimeMillis()
+                    )
+                }.toByteArray(
+                    StandardCharsets.UTF_8
+                )
 
                 messageClient
                     .sendMessage(
@@ -214,7 +255,8 @@ class PhoneWearCommunication(
                     )
                     .addOnSuccessListener {
                         if (
-                            currentSessionId == sessionId &&
+                            currentSessionId ==
+                            sessionId &&
                             sessionState ==
                             SessionState.PREPARING
                         ) {
@@ -226,7 +268,10 @@ class PhoneWearCommunication(
                         }
                     }
                     .addOnFailureListener { exception ->
-                        if (currentSessionId == sessionId) {
+                        if (
+                            currentSessionId ==
+                            sessionId
+                        ) {
                             resetSession()
                         }
 
@@ -240,7 +285,10 @@ class PhoneWearCommunication(
                     }
             }
             .addOnFailureListener { exception ->
-                if (currentSessionId == sessionId) {
+                if (
+                    currentSessionId ==
+                    sessionId
+                ) {
                     resetSession()
                 }
 
@@ -254,13 +302,17 @@ class PhoneWearCommunication(
             }
     }
 
-    fun startPreparedSession() {
-        if (sessionState != SessionState.READY) {
+    fun startPreparedSession(): Boolean {
+        if (
+            sessionState !=
+            SessionState.READY
+        ) {
             updateStatus(
                 "Die Smartwatch ist noch nicht für eine " +
                         "Aufnahme bereit."
             )
-            return
+
+            return false
         }
 
         val sessionId =
@@ -279,7 +331,8 @@ class PhoneWearCommunication(
                 "Die vorbereitete Sitzung enthält " +
                         "keine gültigen Verbindungsdaten."
             )
-            return
+
+            return false
         }
 
         updateSessionState(
@@ -290,12 +343,18 @@ class PhoneWearCommunication(
             append("session_id=")
             append(sessionId)
 
-            append(";phone_start_command_epoch_ms=")
-            append(System.currentTimeMillis())
-        }.toByteArray(StandardCharsets.UTF_8)
+            append(
+                ";phone_start_command_epoch_ms="
+            )
+            append(
+                System.currentTimeMillis()
+            )
+        }.toByteArray(
+            StandardCharsets.UTF_8
+        )
 
         updateStatus(
-            "Starte Sensoraufnahme für Sitzung " +
+            "Starte gemeinsame Aufnahme für Sitzung " +
                     "${sessionId.take(8)} …"
         )
 
@@ -307,7 +366,8 @@ class PhoneWearCommunication(
             )
             .addOnSuccessListener {
                 if (
-                    currentSessionId == sessionId &&
+                    currentSessionId ==
+                    sessionId &&
                     sessionState ==
                     SessionState.STARTING
                 ) {
@@ -319,8 +379,13 @@ class PhoneWearCommunication(
                 }
             }
             .addOnFailureListener { exception ->
+                val reason =
+                    exception.message
+                        ?: "Unbekannter Fehler"
+
                 if (
-                    currentSessionId == sessionId &&
+                    currentSessionId ==
+                    sessionId &&
                     sessionState ==
                     SessionState.STARTING
                 ) {
@@ -331,21 +396,29 @@ class PhoneWearCommunication(
 
                 updateStatus(
                     "START konnte nicht gesendet werden: " +
-                            (
-                                    exception.message
-                                        ?: "Unbekannter Fehler"
-                                    )
+                            reason
+                )
+
+                onSessionStartFailed(
+                    sessionId,
+                    reason
                 )
             }
+
+        return true
     }
 
-    fun stopCurrentSession() {
-        if (sessionState != SessionState.RECORDING) {
+    fun stopCurrentSession(): Boolean {
+        if (
+            sessionState !=
+            SessionState.RECORDING
+        ) {
             updateStatus(
                 "Es läuft derzeit keine bestätigte " +
-                        "Smartwatch-Sensoraufnahme."
+                        "gemeinsame Aufnahme."
             )
-            return
+
+            return false
         }
 
         val sessionId =
@@ -364,7 +437,8 @@ class PhoneWearCommunication(
                 "Die laufende Sitzung enthält keine " +
                         "gültigen Verbindungsdaten."
             )
-            return
+
+            return false
         }
 
         updateSessionState(
@@ -375,12 +449,18 @@ class PhoneWearCommunication(
             append("session_id=")
             append(sessionId)
 
-            append(";phone_stop_command_epoch_ms=")
-            append(System.currentTimeMillis())
-        }.toByteArray(StandardCharsets.UTF_8)
+            append(
+                ";phone_stop_command_epoch_ms="
+            )
+            append(
+                System.currentTimeMillis()
+            )
+        }.toByteArray(
+            StandardCharsets.UTF_8
+        )
 
         updateStatus(
-            "Beende Sensoraufnahme für Sitzung " +
+            "Beende gemeinsame Aufnahme für Sitzung " +
                     "${sessionId.take(8)} …"
         )
 
@@ -392,7 +472,8 @@ class PhoneWearCommunication(
             )
             .addOnSuccessListener {
                 if (
-                    currentSessionId == sessionId &&
+                    currentSessionId ==
+                    sessionId &&
                     sessionState ==
                     SessionState.STOPPING
                 ) {
@@ -405,7 +486,8 @@ class PhoneWearCommunication(
             }
             .addOnFailureListener { exception ->
                 if (
-                    currentSessionId == sessionId &&
+                    currentSessionId ==
+                    sessionId &&
                     sessionState ==
                     SessionState.STOPPING
                 ) {
@@ -422,6 +504,8 @@ class PhoneWearCommunication(
                                     )
                 )
             }
+
+        return true
     }
 
     override fun onMessageReceived(
@@ -460,8 +544,10 @@ class PhoneWearCommunication(
         val phoneReceiveTimestampMs =
             System.currentTimeMillis()
 
-        val payload = messageEvent.data
-            .toString(StandardCharsets.UTF_8)
+        val payload =
+            messageEvent.data.toString(
+                StandardCharsets.UTF_8
+            )
 
         val values =
             parsePayload(payload)
@@ -495,18 +581,30 @@ class PhoneWearCommunication(
                     "ACK von der Smartwatch empfangen."
                 )
 
-                append("\nRound-Trip-Time: ")
+                append(
+                    "\nRound-Trip-Time: "
+                )
                 append(roundTripTimeMs)
                 append(" ms")
 
-                append("\nSmartphone Start: ")
-                append(phoneSendTimestampMs)
+                append(
+                    "\nSmartphone Start: "
+                )
+                append(
+                    phoneSendTimestampMs
+                )
 
-                append("\nWatch Verarbeitung: ")
+                append(
+                    "\nWatch Verarbeitung: "
+                )
                 append(watchTimestampMs)
 
-                append("\nSmartphone Empfang: ")
-                append(phoneReceiveTimestampMs)
+                append(
+                    "\nSmartphone Empfang: "
+                )
+                append(
+                    phoneReceiveTimestampMs
+                )
             }
         )
     }
@@ -514,8 +612,10 @@ class PhoneWearCommunication(
     private fun handleSessionReady(
         messageEvent: MessageEvent
     ) {
-        val payload = messageEvent.data
-            .toString(StandardCharsets.UTF_8)
+        val payload =
+            messageEvent.data.toString(
+                StandardCharsets.UTF_8
+            )
 
         val values =
             parsePayload(payload)
@@ -525,7 +625,8 @@ class PhoneWearCommunication(
 
         if (
             !isExpectedSessionMessage(
-                messageEvent = messageEvent,
+                messageEvent =
+                    messageEvent,
                 receivedSessionId =
                     receivedSessionId,
                 messageName = "READY"
@@ -535,8 +636,10 @@ class PhoneWearCommunication(
         }
 
         if (
-            sessionState != SessionState.PREPARING &&
-            sessionState != SessionState.READY
+            sessionState !=
+            SessionState.PREPARING &&
+            sessionState !=
+            SessionState.READY
         ) {
             return
         }
@@ -557,11 +660,16 @@ class PhoneWearCommunication(
 
                 append("\nSession: ")
                 append(
-                    receivedSessionId?.take(8)
+                    receivedSessionId
+                        ?.take(8)
                 )
 
-                append("\nWatch READY: ")
-                append(watchReadyTimestamp)
+                append(
+                    "\nWatch READY: "
+                )
+                append(
+                    watchReadyTimestamp
+                )
             }
         )
     }
@@ -569,8 +677,10 @@ class PhoneWearCommunication(
     private fun handleSessionStarted(
         messageEvent: MessageEvent
     ) {
-        val payload = messageEvent.data
-            .toString(StandardCharsets.UTF_8)
+        val payload =
+            messageEvent.data.toString(
+                StandardCharsets.UTF_8
+            )
 
         val values =
             parsePayload(payload)
@@ -580,7 +690,8 @@ class PhoneWearCommunication(
 
         if (
             !isExpectedSessionMessage(
-                messageEvent = messageEvent,
+                messageEvent =
+                    messageEvent,
                 receivedSessionId =
                     receivedSessionId,
                 messageName = "STARTED"
@@ -590,8 +701,10 @@ class PhoneWearCommunication(
         }
 
         if (
-            sessionState != SessionState.STARTING &&
-            sessionState != SessionState.RECORDING
+            sessionState !=
+            SessionState.STARTING &&
+            sessionState !=
+            SessionState.RECORDING
         ) {
             return
         }
@@ -611,19 +724,28 @@ class PhoneWearCommunication(
         updateStatus(
             buildString {
                 append(
-                    "Smartwatch-Sensoraufnahme läuft."
+                    "Gemeinsame Aufnahme läuft."
                 )
 
                 append("\nSession: ")
                 append(
-                    receivedSessionId?.take(8)
+                    receivedSessionId
+                        ?.take(8)
                 )
 
-                append("\nWatch STARTED: ")
-                append(watchStartTimestamp)
+                append(
+                    "\nWatch STARTED: "
+                )
+                append(
+                    watchStartTimestamp
+                )
 
-                append("\nWatch-Datei: ")
-                append(watchFileName)
+                append(
+                    "\nWatch-Datei: "
+                )
+                append(
+                    watchFileName
+                )
             }
         )
     }
@@ -631,8 +753,10 @@ class PhoneWearCommunication(
     private fun handleSessionStopped(
         messageEvent: MessageEvent
     ) {
-        val payload = messageEvent.data
-            .toString(StandardCharsets.UTF_8)
+        val payload =
+            messageEvent.data.toString(
+                StandardCharsets.UTF_8
+            )
 
         val values =
             parsePayload(payload)
@@ -642,7 +766,8 @@ class PhoneWearCommunication(
 
         if (
             !isExpectedSessionMessage(
-                messageEvent = messageEvent,
+                messageEvent =
+                    messageEvent,
                 receivedSessionId =
                     receivedSessionId,
                 messageName = "STOPPED"
@@ -652,53 +777,83 @@ class PhoneWearCommunication(
         }
 
         if (
-            sessionState != SessionState.STOPPING &&
-            sessionState != SessionState.RECORDING
+            sessionState !=
+            SessionState.STOPPING &&
+            sessionState !=
+            SessionState.RECORDING
         ) {
             return
         }
+
+        val confirmedSessionId =
+            receivedSessionId
+                ?: return
 
         val watchStopTimestamp =
             values["watch_stop_epoch_ms"]
                 ?: "unbekannt"
 
-        val recordingSuccess =
-            when (
-                values["recording_success"]
-            ) {
-                "true" -> "ja"
-                "false" -> "nein"
-                else -> "unbekannt"
-            }
+        val watchRecordingSucceeded =
+            values["recording_success"] ==
+                    "true"
 
         val watchFileName =
             values["watch_file_name"]
-                ?: "unbekannt"
+                ?.takeUnless {
+                    it == "none"
+                }
 
-        val sessionShortId =
-            receivedSessionId?.take(8)
-                ?: "unbekannt"
+        val displayedWatchFileName =
+            watchFileName
+                ?: "keine Datei"
 
         resetSession()
 
         updateStatus(
             buildString {
                 append(
-                    "Smartwatch-Sensoraufnahme beendet."
+                    "Smartwatch-Aufnahme beendet."
                 )
 
                 append("\nSession: ")
-                append(sessionShortId)
+                append(
+                    confirmedSessionId
+                        .take(8)
+                )
 
-                append("\nErfolgreich gespeichert: ")
-                append(recordingSuccess)
+                append(
+                    "\nWatch erfolgreich gespeichert: "
+                )
+                append(
+                    if (
+                        watchRecordingSucceeded
+                    ) {
+                        "ja"
+                    } else {
+                        "nein"
+                    }
+                )
 
-                append("\nWatch STOPPED: ")
-                append(watchStopTimestamp)
+                append(
+                    "\nWatch STOPPED: "
+                )
+                append(
+                    watchStopTimestamp
+                )
 
-                append("\nWatch-Datei: ")
-                append(watchFileName)
+                append(
+                    "\nWatch-Datei: "
+                )
+                append(
+                    displayedWatchFileName
+                )
             }
+        )
+
+        onSessionStopped(
+            confirmedSessionId,
+            watchRecordingSucceeded,
+            watchFileName
         )
     }
 
@@ -720,15 +875,18 @@ class PhoneWearCommunication(
             updateStatus(
                 "$messageName ohne gültige Session-ID empfangen."
             )
+
             return false
         }
 
         if (
-            receivedSessionId != expectedSessionId
+            receivedSessionId !=
+            expectedSessionId
         ) {
             updateStatus(
                 "$messageName gehört zu einer anderen Sitzung."
             )
+
             return false
         }
 
@@ -740,6 +898,7 @@ class PhoneWearCommunication(
             updateStatus(
                 "$messageName wurde von einer anderen Watch empfangen."
             )
+
             return false
         }
 
@@ -747,8 +906,11 @@ class PhoneWearCommunication(
     }
 
     private fun resetSession() {
-        currentSessionId = null
-        currentWatchNodeId = null
+        currentSessionId =
+            null
+
+        currentWatchNodeId =
+            null
 
         updateSessionState(
             SessionState.IDLE
@@ -758,16 +920,20 @@ class PhoneWearCommunication(
     private fun updateSessionState(
         newState: SessionState
     ) {
-        sessionState = newState
+        sessionState =
+            newState
+
         notifySessionControls()
     }
 
     private fun notifySessionControls() {
         val canStart =
-            sessionState == SessionState.READY
+            sessionState ==
+                    SessionState.READY
 
         val canStop =
-            sessionState == SessionState.RECORDING
+            sessionState ==
+                    SessionState.RECORDING
 
         mainHandler.post {
             onSessionControlsChanged(
@@ -786,22 +952,23 @@ class PhoneWearCommunication(
                 val separatorIndex =
                     part.indexOf("=")
 
-                if (separatorIndex <= 0) {
+                if (
+                    separatorIndex <= 0
+                ) {
                     null
                 } else {
-                    val key = part
-                        .substring(
+                    val key =
+                        part.substring(
                             startIndex = 0,
-                            endIndex = separatorIndex
-                        )
-                        .trim()
+                            endIndex =
+                                separatorIndex
+                        ).trim()
 
-                    val value = part
-                        .substring(
+                    val value =
+                        part.substring(
                             startIndex =
                                 separatorIndex + 1
-                        )
-                        .trim()
+                        ).trim()
 
                     key to value
                 }
