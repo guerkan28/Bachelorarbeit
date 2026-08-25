@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "participant_id": "P001",
+  "recording_protocol_version": "1.0",
+  "session_mode": "CONTROLLED_SINGLE_ACTIVITY",
+  "time_reference": "AUDIO_SECONDS_FROM_WAV_START",
+  "synchronization_report_file": "synchronization_report_00000000-0000-4000-8000-000000000000.json",
+  "ground_truth": {
+    "source": "SYNCHRONIZED_VIDEO",
+    "reference_video_file": "reference_video_00000000-0000-4000-8000-000000000000_YYYYMMDD_HHMMSS_000.mp4",
+    "annotator_id": "A001",
+    "annotation_coverage": "PARTIAL"
+  },
+  "reviewed_intervals": [
+    {
+      "start_seconds": 8.0,
+      "end_seconds": 55.0
+    }
+  ],
+  "drink_events": [
+    {
+      "event_id": "D001",
+      "scenario": "DRINK_FROM_GLASS",
+      "container_type": "GLASS",
+      "event_start_seconds": 12.2,
+      "event_end_seconds": 16.4,
+      "mouth_contact_intervals": [
+        {
+          "start_seconds": 13.45,
+          "end_seconds": 14.6
+        }
+      ],
+      "notes": null
+    }
+  ],
+  "negative_intervals": [
+    {
+      "interval_id": "N001",
+      "scenario": "LIFT_CONTAINER_WITHOUT_DRINKING",
+      "start_seconds": 22.0,
+      "end_seconds": 26.5,
+      "notes": null
+    }
+  ],
+  "excluded_intervals": [
+    {
+      "interval_id": "X001",
+      "reason": "SYNCHRONIZATION_MARKER",
+      "start_seconds": 5.5,
+      "end_seconds": 7.7
+    },
+    {
+      "interval_id": "X002",
+      "reason": "SYNCHRONIZATION_MARKER",
+      "start_seconds": 50.0,
+      "end_seconds": 52.4
+    }
+  ],
+  "uncertain_intervals": []
+}

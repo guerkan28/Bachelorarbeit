@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/trinkerkennung/annotation_schema_v1.json",
+  "title": "Trinkerkennung session annotation",
+  "description": "Beobachtbare ereignisbasierte Ground Truth; keine Fenster- oder Modellkonfiguration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "participant_id",
+    "recording_protocol_version",
+    "session_mode",
+    "time_reference",
+    "synchronization_report_file",
+    "ground_truth",
+    "drink_events",
+    "negative_intervals",
+    "excluded_intervals",
+    "uncertain_intervals"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "participant_id": {
+      "type": "string",
+      "pattern": "^P[0-9]{3,}$"
+    },
+    "recording_protocol_version": {
+      "enum": [
+        "1.0"
+      ]
+    },
+    "session_mode": {
+      "enum": [
+        "CONTROLLED_SINGLE_ACTIVITY",
+        "CONTROLLED_MIXED_ACTIVITY",
+        "CONTINUOUS_MIXED_ACTIVITY",
+        "EDGE_CASE"
+      ]
+    },
+    "time_reference": {
+      "const": "AUDIO_SECONDS_FROM_WAV_START"
+    },
+    "synchronization_report_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ground_truth": {
+      "$ref": "#/$defs/groundTruth"
+    },
+    "reviewed_intervals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/timeInterval"
+      }
+    },
+    "drink_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/drinkEvent"
+      }
+    },
+    "negative_intervals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/negativeInterval"
+      }
+    },
+    "excluded_intervals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/excludedInterval"
+      }
+    },
+    "uncertain_intervals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/uncertainInterval"
+      }
+    }
+  },
+  "$defs": {
+    "timeInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_seconds",
+        "end_seconds"
+      ],
+      "properties": {
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "nullableNotes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "groundTruth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "reference_video_file",
+        "annotator_id",
+        "annotation_coverage"
+      ],
+      "properties": {
+        "source": {
+          "const": "SYNCHRONIZED_VIDEO"
+        },
+        "reference_video_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotator_id": {
+          "type": "string",
+          "pattern": "^A[0-9]{3,}$"
+        },
+        "annotation_coverage": {
+          "enum": [
+            "PARTIAL",
+            "EXHAUSTIVE"
+          ]
+        }
+      }
+    },
+    "mouthContactInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_seconds",
+        "end_seconds"
+      ],
+      "properties": {
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "drinkEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "scenario",
+        "container_type",
+        "event_start_seconds",
+        "event_end_seconds",
+        "mouth_contact_intervals",
+        "notes"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario": {
+          "enum": [
+            "DRINK_FROM_GLASS",
+            "DRINK_FROM_CUP",
+            "DRINK_FROM_BOTTLE"
+          ]
+        },
+        "container_type": {
+          "enum": [
+            "GLASS",
+            "CUP",
+            "BOTTLE"
+          ]
+        },
+        "event_start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "event_end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "mouth_contact_intervals": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/mouthContactInterval"
+          }
+        },
+        "notes": {
+          "$ref": "#/$defs/nullableNotes"
+        }
+      }
+    },
+    "negativeInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interval_id",
+        "scenario",
+        "start_seconds",
+        "end_seconds",
+        "notes"
+      ],
+      "properties": {
+        "interval_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scenario": {
+          "enum": [
+            "REST",
+            "LIFT_CONTAINER_WITHOUT_DRINKING",
+            "MOVE_CONTAINER_WITHOUT_DRINKING",
+            "HAND_TO_FACE_WITHOUT_CONTAINER",
+            "TOUCH_FACE",
+            "SMARTPHONE_USE",
+            "SPEAKING",
+            "EATING"
+          ]
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "notes": {
+          "$ref": "#/$defs/nullableNotes"
+        }
+      }
+    },
+    "excludedInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interval_id",
+        "reason",
+        "start_seconds",
+        "end_seconds"
+      ],
+      "properties": {
+        "interval_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "enum": [
+            "INITIAL_POSITIONING",
+            "SYNCHRONIZATION_MARKER",
+            "RECORDING_START_INTERACTION",
+            "RECORDING_STOP_INTERACTION",
+            "EXPERIMENT_INSTRUCTION",
+            "INVALID_SIGNAL",
+            "OTHER_TECHNICAL_ARTIFACT"
+          ]
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "uncertainInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interval_id",
+        "reason",
+        "start_seconds",
+        "end_seconds"
+      ],
+      "properties": {
+        "interval_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "enum": [
+            "MOUTH_CONTACT_NOT_VISIBLE",
+            "EVENT_BOUNDARY_NOT_VISIBLE",
+            "POSSIBLE_DRINKING_WITHOUT_SUFFICIENT_EVIDENCE",
+            "ABORTED_ACTIVITY",
+            "OVERLAPPING_ACTIVITIES",
+            "OTHER_SEMANTIC_UNCERTAINTY"
+          ]
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "notes": {
+          "$ref": "#/$defs/nullableNotes"
+        }
+      }
+    }
+  }
+}

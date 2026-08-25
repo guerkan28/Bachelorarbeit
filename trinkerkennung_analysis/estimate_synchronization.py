@@ -21,6 +21,7 @@ from .synchronization import (
     apply_watch_offset,
     marker_exclusion_interval,
 )
+from .video_alignment import build_watch_to_audio_mapping
 
 
 DATA_ENV_NAME = "TRINKERKENNUNG_DATA_ROOT"
@@ -69,7 +70,7 @@ def create_synchronization_outputs(
     )
     report_path = (
         session_output
-        / f"session_{session_id}_synchronization_report.json"
+        / f"synchronization_report_{session_id}.json"
     )
 
     aligned_acceleration_time = apply_watch_offset(
@@ -103,6 +104,11 @@ def create_synchronization_outputs(
     )
 
     report = result.to_dict()
+    report["schema_version"] = 2
+    report["time_mappings"] = {
+        "watch_to_audio": build_watch_to_audio_mapping(report),
+        "video_to_audio": None,
+    }
     report.update({
         "time_axis_note": (
             "Die lokalen Watch-Zeiten wurden mit dem geschätzten "
