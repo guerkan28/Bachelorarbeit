@@ -44,6 +44,25 @@ Mehrere sichtbare Mundkontakte in einem durchgehenden Bewegungszyklus werden als
 
 Nicht annotierte Zeit wird niemals automatisch zu `NOT_DRINKING`.
 
+## Gefäßtyp bei negativen Gefäßaktivitäten
+
+`negative_intervals` können optional das Feld `container_type` enthalten. Zulässige Werte sind:
+
+- `GLASS`
+- `CUP`
+- `BOTTLE`
+
+Das Feld dient dazu, bei gefäßbezogenen Negativaktivitäten die verwendete Gefäßart strukturiert zu erhalten. Dies betrifft insbesondere:
+
+- `LIFT_CONTAINER_WITHOUT_DRINKING`
+- `MOVE_CONTAINER_WITHOUT_DRINKING`
+
+Für ab dem Pilot erhobene `LIFT`- und `MOVE`-Intervalle soll `container_type` nach Möglichkeit explizit angegeben werden.
+
+Das Feld bleibt im Schema optional, damit bereits vorhandene Annotationen ohne strukturierte Gefäßinformation weiterhin gültig bleiben. Bei Aktivitäten ohne beteiligtes Gefäß, beispielsweise `REST` oder `HAND_TO_FACE_WITHOUT_CONTAINER`, wird `container_type` nicht angegeben.
+
+Die Gefäßart stellt kein eigenes binäres Modelllabel dar. Die fachliche Aktivität bleibt über `scenario` erhalten; `container_type` ist eine zusätzliche beschreibende Ground-Truth-Information.
+
 ## Disjunktheitsregel
 
 Die vier expliziten fachlichen Strukturen müssen auf der gemeinsamen Audiozeitachse disjunkt sein. Diese technische Regel erhält die fachliche Aussage, weil ein Zeitraum dadurch genau einen primären Verarbeitungsstatus besitzt. Überlagerte oder nicht eindeutig trennbare Aktivitäten werden als `UNCERTAIN` mit `OVERLAPPING_ACTIVITIES` dokumentiert. Mundkontaktintervalle liegen als Unterstruktur innerhalb ihres `DRINK_EVENT` und sind von dieser Top-Level-Regel ausgenommen.

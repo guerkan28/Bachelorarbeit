@@ -235,6 +235,13 @@
             "EATING"
           ]
         },
+        "container_type": {
+          "enum": [
+            "GLASS",
+            "CUP",
+            "BOTTLE"
+          ]
+        },
         "start_seconds": {
           "type": "number",
           "minimum": 0

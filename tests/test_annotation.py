@@ -217,6 +217,28 @@ class AnnotationValidationTest(unittest.TestCase):
         self.assertEqual(result.drink_event_count, 2)
         self.assertEqual(result.negative_interval_count, 2)
 
+    def test_lift_negative_with_glass_container_type_is_valid(self) -> None:
+        self.annotation["negative_intervals"][0]["container_type"] = "GLASS"
+
+        result = self._validate()
+
+        self.assertEqual(result.negative_interval_count, 1)
+
+    def test_move_negative_with_bottle_container_type_is_valid(self) -> None:
+        self.annotation["negative_intervals"][0][
+            "scenario"
+        ] = "MOVE_CONTAINER_WITHOUT_DRINKING"
+        self.annotation["negative_intervals"][0]["container_type"] = "BOTTLE"
+
+        result = self._validate()
+
+        self.assertEqual(result.negative_interval_count, 1)
+
+    def test_unknown_negative_container_type_is_rejected(self) -> None:
+        self.annotation["negative_intervals"][0]["container_type"] = "STRAW"
+
+        self._assert_invalid("container_type ist unbekannt")
+
     def test_unknown_container_type_is_rejected(self) -> None:
         self.annotation["drink_events"][0]["container_type"] = "STRAW"
         self._assert_invalid("container_type ist unbekannt")

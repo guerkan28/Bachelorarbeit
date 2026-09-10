@@ -559,11 +559,21 @@ class _AnnotationValidator:
                 identifier_key="interval_id",
                 wav_duration=wav_duration,
                 extra_required={"scenario", "notes"},
-                extra_allowed={"scenario", "notes"},
+                extra_allowed={"scenario", "container_type", "notes"},
             )
             if isinstance(item, dict):
                 if item.get("scenario") not in NEGATIVE_SCENARIOS:
                     self.errors.append(f"{path}.scenario ist unbekannt.")
+
+                container_type = item.get("container_type")
+                if (
+                    container_type is not None
+                    and container_type not in CONTAINER_TYPES
+                ):
+                    self.errors.append(
+                        f"{path}.container_type ist unbekannt."
+                    )
+
                 self._validate_notes(item.get("notes"), f"{path}.notes")
                 if "mouth_contact_intervals" in item:
                     self.errors.append(

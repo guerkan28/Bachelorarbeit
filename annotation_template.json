@@ -38,6 +38,7 @@
     {
       "interval_id": "N001",
       "scenario": "LIFT_CONTAINER_WITHOUT_DRINKING",
+      "container_type": "GLASS",
       "start_seconds": 22.0,
       "end_seconds": 26.5,
       "notes": null
