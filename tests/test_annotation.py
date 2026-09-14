@@ -148,6 +148,62 @@ class AnnotationValidationTest(unittest.TestCase):
         report_path.write_text(json.dumps(report), encoding="utf-8")
         self._assert_invalid("Video-zu-Audio-Abbildung")
 
+    def test_reference_video_absolute_mapping_path_is_valid(self) -> None:
+        video_name = self.annotation["ground_truth"]["reference_video_file"]
+
+        camera_directory = self.root / "camera"
+        camera_directory.mkdir()
+
+        source_video = self.root / video_name
+        target_video = camera_directory / video_name
+        source_video.replace(target_video)
+
+        report_path = (
+            self.root / self.annotation["synchronization_report_file"]
+        )
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+
+        report["time_mappings"]["video_to_audio"][
+            "reference_video_file"
+        ] = str(target_video.resolve())
+
+        report_path.write_text(
+            json.dumps(report),
+            encoding="utf-8",
+        )
+
+        result = self._validate()
+
+        self.assertEqual(
+            Path(result.reference_video_file).name,
+            video_name,
+        )
+
+    def test_reference_video_mapping_filename_mismatch_is_rejected(
+        self,
+    ) -> None:
+        report_path = (
+            self.root / self.annotation["synchronization_report_file"]
+        )
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+
+        wrong_video_name = (
+            f"reference_video_{self.SESSION_ID}_different.mp4"
+        )
+
+        report["time_mappings"]["video_to_audio"][
+            "reference_video_file"
+        ] = str((self.root / "camera" / wrong_video_name).resolve())
+
+        report_path.write_text(
+            json.dumps(report),
+            encoding="utf-8",
+        )
+
+        self._assert_invalid(
+            "Referenzvideo in Annotation und Videoabbildung stimmt nicht überein."
+        )
+
     def test_marker_match_uses_tolerance(self) -> None:
         report_path = self.root / self.annotation["synchronization_report_file"]
         report = json.loads(report_path.read_text(encoding="utf-8"))

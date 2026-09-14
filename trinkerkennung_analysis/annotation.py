@@ -413,7 +413,7 @@ class _AnnotationValidator:
                 self.errors.append(
                     "reference_video_file benötigt eine Dateiendung."
                 )
-            matches = self._find_files(video_file)
+            matches = self._find_files(Path(video_file).name)
             if len(matches) == 1:
                 self.reference_video_path = matches[0]
             elif len(matches) == 0:
@@ -707,7 +707,14 @@ class _AnnotationValidator:
             if isinstance(ground_truth, dict)
             else None
         )
-        if video_mapping.get("reference_video_file") != expected_video:
+
+        mapped_video = video_mapping.get("reference_video_file")
+
+        if (
+            not isinstance(expected_video, str)
+            or not isinstance(mapped_video, str)
+            or Path(expected_video).name != Path(mapped_video).name
+        ):
             self.errors.append(
                 "Referenzvideo in Annotation und Videoabbildung stimmt nicht überein."
             )
