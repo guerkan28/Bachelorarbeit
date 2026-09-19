@@ -53,6 +53,9 @@ class PhoneWearCommunication(
 
         private const val STOPPED_PATH =
             "/trinkerkennung/session/stopped"
+
+        private const val SESSION_ACK_TIMEOUT_MS =
+            10_000L
     }
 
     private enum class SessionState {
@@ -91,6 +94,12 @@ class PhoneWearCommunication(
     @Volatile
     private var sessionState =
         SessionState.IDLE
+
+    private var startAckTimeoutRunnable: Runnable? =
+        null
+
+    private var stopAckTimeoutRunnable: Runnable? =
+        null
 
     fun startListening() {
         notifySessionControls()
@@ -386,6 +395,11 @@ class PhoneWearCommunication(
             SessionState.STARTING
         )
 
+        scheduleStartAckTimeout(
+            sessionId = sessionId,
+            watchNodeId = watchNodeId
+        )
+
         val payload = buildString {
             append("session_id=")
             append(sessionId)
@@ -507,6 +521,10 @@ class PhoneWearCommunication(
             SessionState.STOPPING
         )
 
+        scheduleStopAckTimeout(
+            sessionId = sessionId
+        )
+
         val payload = buildString {
             append("session_id=")
             append(sessionId)
@@ -553,6 +571,8 @@ class PhoneWearCommunication(
                     sessionState ==
                     SessionState.STOPPING
                 ) {
+                    cancelStopAckTimeout()
+
                     updateSessionState(
                         SessionState.RECORDING
                     )
@@ -783,6 +803,8 @@ class PhoneWearCommunication(
                             it == "unbekannt"
                 }
 
+        cancelStartAckTimeout()
+
         sessionMetadataStore.recordStarted(
             sessionId =
                 confirmedSessionId,
@@ -877,6 +899,8 @@ class PhoneWearCommunication(
                 ?.takeUnless {
                     it == "none"
                 }
+
+        cancelStopAckTimeout()
 
         sessionMetadataStore.recordStopped(
             sessionId =
@@ -986,7 +1010,193 @@ class PhoneWearCommunication(
         return true
     }
 
+    private fun scheduleStartAckTimeout(
+        sessionId: String,
+        watchNodeId: String
+    ) {
+        cancelStartAckTimeout()
+
+        val timeoutRunnable =
+            Runnable {
+                if (
+                    currentSessionId != sessionId ||
+                    currentWatchNodeId != watchNodeId ||
+                    sessionState !=
+                    SessionState.STARTING
+                ) {
+                    return@Runnable
+                }
+
+                val reason =
+                    "START_ACK_TIMEOUT: Keine STARTED-" +
+                            "Best?tigung innerhalb von " +
+                            "${SESSION_ACK_TIMEOUT_MS / 1_000} " +
+                            "Sekunden."
+
+                sessionMetadataStore
+                    .recordFailure(
+                        sessionId,
+                        reason
+                    )
+
+                /*
+                 * START kann die Watch erreicht haben, obwohl die
+                 * STARTED-Best?tigung verloren gegangen ist.
+                 * Deshalb wird bestm?glich noch ein STOP gesendet,
+                 * bevor die Smartphone-Seite die Sitzung verwirft.
+                 */
+                sendBestEffortStopAfterStartTimeout(
+                    sessionId = sessionId,
+                    watchNodeId = watchNodeId
+                )
+
+                resetSession()
+
+                updateStatus(
+                    "STARTED-Timeout f?r Sitzung " +
+                            "${sessionId.take(8)}. " +
+                            "Die Sitzung wird als technisch " +
+                            "fehlgeschlagen beendet."
+                )
+
+                onSessionStartFailed(
+                    sessionId,
+                    reason
+                )
+            }
+
+        startAckTimeoutRunnable =
+            timeoutRunnable
+
+        mainHandler.postDelayed(
+            timeoutRunnable,
+            SESSION_ACK_TIMEOUT_MS
+        )
+    }
+
+    private fun scheduleStopAckTimeout(
+        sessionId: String
+    ) {
+        cancelStopAckTimeout()
+
+        val timeoutRunnable =
+            Runnable {
+                if (
+                    currentSessionId != sessionId ||
+                    sessionState !=
+                    SessionState.STOPPING
+                ) {
+                    return@Runnable
+                }
+
+                val reason =
+                    "STOP_ACK_TIMEOUT: Keine STOPPED-" +
+                            "Best?tigung innerhalb von " +
+                            "${SESSION_ACK_TIMEOUT_MS / 1_000} " +
+                            "Sekunden."
+
+                sessionMetadataStore
+                    .recordFailure(
+                        sessionId,
+                        reason
+                    )
+
+                resetSession()
+
+                updateStatus(
+                    "STOPPED-Timeout f?r Sitzung " +
+                            "${sessionId.take(8)}. " +
+                            "Die Smartphone-Aufnahme wird " +
+                            "kontrolliert abgeschlossen; die " +
+                            "Sitzung bleibt technisch fehlerhaft."
+                )
+
+                /*
+                 * Der vorhandene Callback beendet die lokale
+                 * Audioaufnahme und finalisiert die Metadaten.
+                 * Aufgrund von recordFailure() erh?lt die Sitzung
+                 * dabei den finalen Status FAILED.
+                 */
+                onSessionStopped(
+                    sessionId,
+                    false,
+                    null
+                )
+            }
+
+        stopAckTimeoutRunnable =
+            timeoutRunnable
+
+        mainHandler.postDelayed(
+            timeoutRunnable,
+            SESSION_ACK_TIMEOUT_MS
+        )
+    }
+
+    private fun cancelStartAckTimeout() {
+        startAckTimeoutRunnable
+            ?.let { runnable ->
+                mainHandler.removeCallbacks(
+                    runnable
+                )
+            }
+
+        startAckTimeoutRunnable =
+            null
+    }
+
+    private fun cancelStopAckTimeout() {
+        stopAckTimeoutRunnable
+            ?.let { runnable ->
+                mainHandler.removeCallbacks(
+                    runnable
+                )
+            }
+
+        stopAckTimeoutRunnable =
+            null
+    }
+
+    private fun cancelSessionAckTimeouts() {
+        cancelStartAckTimeout()
+        cancelStopAckTimeout()
+    }
+
+    private fun sendBestEffortStopAfterStartTimeout(
+        sessionId: String,
+        watchNodeId: String
+    ) {
+        val phoneStopCommandEpochMs =
+            System.currentTimeMillis()
+
+        val payload = buildString {
+            append("session_id=")
+            append(sessionId)
+
+            append(
+                ";phone_stop_command_epoch_ms="
+            )
+            append(
+                phoneStopCommandEpochMs
+            )
+        }.toByteArray(
+            StandardCharsets.UTF_8
+        )
+
+        /*
+         * Best-Effort-Recovery: Es wird bewusst nicht auf das
+         * Ergebnis dieses STOP-Kommandos gewartet. Die Session
+         * ist bereits als FAILED markiert.
+         */
+        messageClient.sendMessage(
+            watchNodeId,
+            STOP_PATH,
+            payload
+        )
+    }
+
     private fun resetSession() {
+        cancelSessionAckTimeouts()
         currentSessionId =
             null
 
