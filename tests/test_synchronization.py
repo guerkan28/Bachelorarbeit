@@ -10,6 +10,7 @@ from trinkerkennung_analysis.synchronization import (
     SynchronizationError,
     apply_watch_offset,
     calculate_acceleration_marker_score,
+    detect_confirmed_peak_group,
     detect_regular_peak_group,
     estimate_constant_offset,
     marker_exclusion_interval,
@@ -57,6 +58,64 @@ class SynchronizationTest(unittest.TestCase):
             marker.peak_times_seconds,
             np.array(
                 [3.0, 3.6, 4.2]
+            ),
+            atol=0.011,
+        )
+
+    def test_confirmed_peak_group_accepts_irregular_intervals(
+        self,
+    ) -> None:
+        time_seconds = np.arange(
+            0.0,
+            10.0,
+            0.01,
+        )
+        values = np.zeros_like(
+            time_seconds
+        )
+
+        for peak_time in (
+            3.0,
+            4.0,
+            5.4,
+        ):
+            values += np.exp(
+                -0.5
+                * (
+                    (
+                        time_seconds
+                        - peak_time
+                    )
+                    / 0.025
+                )
+                ** 2
+            )
+
+        # Der regul?re Detektor muss wegen
+        # des Abstands von 1,4 s weiterhin scheitern.
+        with self.assertRaises(
+            SynchronizationError
+        ):
+            detect_regular_peak_group(
+                time_seconds=time_seconds,
+                values=values,
+                window_seconds=(2.5, 6.0),
+            )
+
+        marker = detect_confirmed_peak_group(
+            time_seconds=time_seconds,
+            values=values,
+            peak_windows_seconds=(
+                (2.85, 3.15),
+                (3.85, 4.15),
+                (5.25, 5.55),
+            ),
+        )
+
+        np.testing.assert_allclose(
+            marker.peak_times_seconds,
+            np.array(
+                [3.0, 4.0, 5.4]
             ),
             atol=0.011,
         )

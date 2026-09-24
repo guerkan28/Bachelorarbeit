@@ -34,6 +34,18 @@ def create_synchronization_outputs(
     start_window_seconds: tuple[float, float] | None = None,
     end_window_seconds: tuple[float, float] | None = None,
     expected_impulses: int = 3,
+    start_audio_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
+    start_watch_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
+    end_audio_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
+    end_watch_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
 ) -> dict[str, object]:
     """Schätzt den Offset und speichert Bericht sowie ausgerichtete Übersicht."""
     (
@@ -51,6 +63,14 @@ def create_synchronization_outputs(
             end_window_seconds,
         expected_impulses=
             expected_impulses,
+        start_audio_peak_windows_seconds=
+            start_audio_peak_windows_seconds,
+        start_watch_peak_windows_seconds=
+            start_watch_peak_windows_seconds,
+        end_audio_peak_windows_seconds=
+            end_audio_peak_windows_seconds,
+        end_watch_peak_windows_seconds=
+            end_watch_peak_windows_seconds,
     )
 
     session_output = (
@@ -108,6 +128,59 @@ def create_synchronization_outputs(
     report["time_mappings"] = {
         "watch_to_audio": build_watch_to_audio_mapping(report),
         "video_to_audio": None,
+    }
+
+    confirmed_windows = {
+        "start_audio": (
+            [
+                list(window)
+                for window in start_audio_peak_windows_seconds
+            ]
+            if start_audio_peak_windows_seconds is not None
+            else None
+        ),
+        "start_watch": (
+            [
+                list(window)
+                for window in start_watch_peak_windows_seconds
+            ]
+            if start_watch_peak_windows_seconds is not None
+            else None
+        ),
+        "end_audio": (
+            [
+                list(window)
+                for window in end_audio_peak_windows_seconds
+            ]
+            if end_audio_peak_windows_seconds is not None
+            else None
+        ),
+        "end_watch": (
+            [
+                list(window)
+                for window in end_watch_peak_windows_seconds
+            ]
+            if end_watch_peak_windows_seconds is not None
+            else None
+        ),
+    }
+
+    report["marker_detection"] = {
+        "group_modes": {
+            key: (
+                "CONFIRMED_PEAK_WINDOWS"
+                if value is not None
+                else "AUTOMATIC_REGULAR_GROUP"
+            )
+            for key, value in confirmed_windows.items()
+        },
+        "confirmed_peak_windows_seconds":
+            confirmed_windows,
+        "note": (
+            "CONFIRMED_PEAK_WINDOWS verwendet fachlich best?tigte "
+            "kleine Suchfenster. Die konkrete Peakposition wird "
+            "innerhalb der Fenster weiterhin algorithmisch bestimmt."
+        ),
     }
     report.update({
         "time_axis_note": (
@@ -336,6 +409,34 @@ def main() -> int:
         metavar=("START", "ENDE"),
     )
     parser.add_argument(
+        "--start-audio-peak-window",
+        action="append",
+        nargs=2,
+        type=float,
+        metavar=("START", "ENDE"),
+    )
+    parser.add_argument(
+        "--start-watch-peak-window",
+        action="append",
+        nargs=2,
+        type=float,
+        metavar=("START", "ENDE"),
+    )
+    parser.add_argument(
+        "--end-audio-peak-window",
+        action="append",
+        nargs=2,
+        type=float,
+        metavar=("START", "ENDE"),
+    )
+    parser.add_argument(
+        "--end-watch-peak-window",
+        action="append",
+        nargs=2,
+        type=float,
+        metavar=("START", "ENDE"),
+    )
+    parser.add_argument(
         "--expected-impulses",
         type=int,
         default=3,
@@ -379,6 +480,42 @@ def main() -> int:
         else None
     )
 
+    start_audio_peak_windows = (
+        tuple(
+            tuple(window)
+            for window in arguments.start_audio_peak_window
+        )
+        if arguments.start_audio_peak_window
+        else None
+    )
+
+    start_watch_peak_windows = (
+        tuple(
+            tuple(window)
+            for window in arguments.start_watch_peak_window
+        )
+        if arguments.start_watch_peak_window
+        else None
+    )
+
+    end_audio_peak_windows = (
+        tuple(
+            tuple(window)
+            for window in arguments.end_audio_peak_window
+        )
+        if arguments.end_audio_peak_window
+        else None
+    )
+
+    end_watch_peak_windows = (
+        tuple(
+            tuple(window)
+            for window in arguments.end_watch_peak_window
+        )
+        if arguments.end_watch_peak_window
+        else None
+    )
+
     try:
         report = create_synchronization_outputs(
             data_root=data_root,
@@ -390,6 +527,14 @@ def main() -> int:
                 end_window,
             expected_impulses=
                 arguments.expected_impulses,
+            start_audio_peak_windows_seconds=
+                start_audio_peak_windows,
+            start_watch_peak_windows_seconds=
+                start_watch_peak_windows,
+            end_audio_peak_windows_seconds=
+                end_audio_peak_windows,
+            end_watch_peak_windows_seconds=
+                end_watch_peak_windows,
         )
     except (
         SessionValidationError,

@@ -112,12 +112,270 @@ class SynchronizationResult:
         }
 
 
+
+def detect_confirmed_peak_group(
+    time_seconds: np.ndarray,
+    values: np.ndarray,
+    peak_windows_seconds: (
+        tuple[tuple[float, float], ...]
+        | list[tuple[float, float]]
+    ),
+    expected_peak_count: int = 3,
+) -> MarkerGroup:
+    """Erkennt Markerpeaks in fachlich best?tigten kleinen Suchfenstern.
+
+    Der regul?re automatische Detektor bleibt unver?ndert. Dieser
+    Fallback wird nur verwendet, wenn f?r jeden erwarteten Impuls
+    ein separates, zeitlich geordnetes Suchfenster vorgegeben wurde.
+    Die konkrete Peakposition wird weiterhin algorithmisch aus dem
+    Signal bestimmt.
+    """
+    time_values = np.asarray(
+        time_seconds,
+        dtype=np.float64,
+    )
+    signal_values = np.asarray(
+        values,
+        dtype=np.float64,
+    )
+
+    if (
+        time_values.ndim != 1
+        or signal_values.ndim != 1
+        or time_values.size != signal_values.size
+        or time_values.size < 3
+    ):
+        raise SynchronizationError(
+            "Zeit- und Markersignal m?ssen eindimensional "
+            "und gleich lang sein."
+        )
+
+    if not (
+        np.isfinite(time_values).all()
+        and np.isfinite(signal_values).all()
+    ):
+        raise SynchronizationError(
+            "Zeit- oder Markersignal enth?lt ung?ltige Werte."
+        )
+
+    if expected_peak_count < 2:
+        raise SynchronizationError(
+            "Es werden mindestens zwei Markerimpulse ben?tigt."
+        )
+
+    windows = tuple(
+        peak_windows_seconds
+    )
+
+    if len(windows) != expected_peak_count:
+        raise SynchronizationError(
+            "Die Anzahl best?tigter Peak-Suchfenster stimmt nicht "
+            "mit der erwarteten Impulsanzahl ?berein."
+        )
+
+    validated_windows: list[
+        tuple[float, float]
+    ] = []
+
+    previous_end: float | None = None
+
+    for index, window in enumerate(
+        windows,
+        start=1,
+    ):
+        validated = _validate_window(
+            window,
+            float(time_values[-1]),
+            f"Best?tigtes Markerfenster {index}",
+        )
+
+        if (
+            previous_end is not None
+            and validated[0] <= previous_end
+        ):
+            raise SynchronizationError(
+                "Best?tigte Peak-Suchfenster m?ssen zeitlich "
+                "geordnet sein und d?rfen sich nicht ?berlappen."
+            )
+
+        validated_windows.append(
+            validated
+        )
+        previous_end = validated[1]
+
+    # Robuste Schwelle nur aus den drei kleinen Suchfenstern
+    # bestimmen, nicht aus dem gesamten Bereich zwischen
+    # erstem und letztem Marker.
+    union_mask = np.zeros(
+        time_values.shape,
+        dtype=bool,
+    )
+
+    for window_start, window_end in validated_windows:
+        union_mask |= (
+            (time_values >= window_start)
+            & (time_values <= window_end)
+        )
+
+    union_values = signal_values[
+        union_mask
+    ]
+
+    if union_values.size < expected_peak_count + 2:
+        raise SynchronizationError(
+            "Die best?tigten Markerfenster enthalten "
+            "zu wenige Signalwerte."
+        )
+
+    center = float(
+        np.median(union_values)
+    )
+
+    mad = float(
+        np.median(
+            np.abs(
+                union_values - center
+            )
+        )
+    )
+
+    robust_scale = max(
+        1.4826 * mad,
+        float(
+            np.std(union_values)
+        ) * 0.05,
+        np.finfo(np.float64).eps,
+    )
+
+    threshold = (
+        center
+        + 5.0 * robust_scale
+    )
+
+    selected_indices: list[int] = []
+
+    for number, (
+        window_start,
+        window_end,
+    ) in enumerate(
+        validated_windows,
+        start=1,
+    ):
+        indices = np.flatnonzero(
+            (time_values >= window_start)
+            & (time_values <= window_end)
+        )
+
+        if indices.size < 3:
+            raise SynchronizationError(
+                f"Best?tigtes Markerfenster {number} "
+                "enth?lt zu wenige Signalwerte."
+            )
+
+        local_values = signal_values[
+            indices
+        ]
+
+        local_maxima = (
+            np.where(
+                (local_values[1:-1] > local_values[:-2])
+                & (
+                    local_values[1:-1]
+                    >= local_values[2:]
+                )
+            )[0]
+            + 1
+        )
+
+        if local_maxima.size == 0:
+            raise SynchronizationError(
+                f"Best?tigtes Markerfenster {number} "
+                "enth?lt kein lokales Maximum."
+            )
+
+        local_peak = int(
+            local_maxima[
+                np.argmax(
+                    local_values[
+                        local_maxima
+                    ]
+                )
+            ]
+        )
+
+        selected_index = int(
+            indices[local_peak]
+        )
+
+        if (
+            signal_values[selected_index]
+            < threshold
+        ):
+            raise SynchronizationError(
+                f"Best?tigtes Markerfenster {number} "
+                "enth?lt keinen ausreichend ausgepr?gten Peak."
+            )
+
+        selected_indices.append(
+            selected_index
+        )
+
+    peak_times = time_values[
+        selected_indices
+    ].copy()
+
+    peak_values = signal_values[
+        selected_indices
+    ].copy()
+
+    intervals = np.diff(
+        peak_times
+    )
+
+    interval_cv = float(
+        np.std(intervals)
+        / np.mean(intervals)
+    )
+
+    robust_z = (
+        peak_values - center
+    ) / robust_scale
+
+    return MarkerGroup(
+        peak_times_seconds=peak_times,
+        peak_values=peak_values,
+        window_start_seconds=
+            validated_windows[0][0],
+        window_end_seconds=
+            validated_windows[-1][1],
+        detection_threshold=
+            float(threshold),
+        interval_coefficient_of_variation=
+            interval_cv,
+        detection_score=float(
+            np.sum(robust_z)
+        ),
+    )
+
+
 def analyze_session_synchronization(
     data_root: str | Path,
     session_id: str,
     start_window_seconds: tuple[float, float] | None = None,
     end_window_seconds: tuple[float, float] | None = None,
     expected_impulses: int = 3,
+    start_audio_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
+    start_watch_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
+    end_audio_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
+    end_watch_peak_windows_seconds: (
+        tuple[tuple[float, float], ...] | None
+    ) = None,
 ) -> tuple[
     SessionSignals,
     np.ndarray,
@@ -162,34 +420,77 @@ def analyze_session_synchronization(
         )
     )
 
-    start_audio = detect_regular_peak_group(
-        time_seconds=rms_time,
-        values=rms_values,
-        window_seconds=resolved_start,
-        expected_peak_count=expected_impulses,
-    )
-    end_audio = detect_regular_peak_group(
-        time_seconds=rms_time,
-        values=rms_values,
-        window_seconds=resolved_end,
-        expected_peak_count=expected_impulses,
-    )
-    start_watch = detect_regular_peak_group(
-        time_seconds=signals.accelerometer[
-            "time_seconds"
-        ].to_numpy(dtype=np.float64),
-        values=acceleration_score,
-        window_seconds=resolved_start,
-        expected_peak_count=expected_impulses,
-    )
-    end_watch = detect_regular_peak_group(
-        time_seconds=signals.accelerometer[
-            "time_seconds"
-        ].to_numpy(dtype=np.float64),
-        values=acceleration_score,
-        window_seconds=resolved_end,
-        expected_peak_count=expected_impulses,
-    )
+    watch_time = signals.accelerometer[
+        "time_seconds"
+    ].to_numpy(dtype=np.float64)
+
+    if start_audio_peak_windows_seconds is None:
+        start_audio = detect_regular_peak_group(
+            time_seconds=rms_time,
+            values=rms_values,
+            window_seconds=resolved_start,
+            expected_peak_count=expected_impulses,
+        )
+    else:
+        start_audio = detect_confirmed_peak_group(
+            time_seconds=rms_time,
+            values=rms_values,
+            peak_windows_seconds=
+                start_audio_peak_windows_seconds,
+            expected_peak_count=
+                expected_impulses,
+        )
+
+    if end_audio_peak_windows_seconds is None:
+        end_audio = detect_regular_peak_group(
+            time_seconds=rms_time,
+            values=rms_values,
+            window_seconds=resolved_end,
+            expected_peak_count=expected_impulses,
+        )
+    else:
+        end_audio = detect_confirmed_peak_group(
+            time_seconds=rms_time,
+            values=rms_values,
+            peak_windows_seconds=
+                end_audio_peak_windows_seconds,
+            expected_peak_count=
+                expected_impulses,
+        )
+
+    if start_watch_peak_windows_seconds is None:
+        start_watch = detect_regular_peak_group(
+            time_seconds=watch_time,
+            values=acceleration_score,
+            window_seconds=resolved_start,
+            expected_peak_count=expected_impulses,
+        )
+    else:
+        start_watch = detect_confirmed_peak_group(
+            time_seconds=watch_time,
+            values=acceleration_score,
+            peak_windows_seconds=
+                start_watch_peak_windows_seconds,
+            expected_peak_count=
+                expected_impulses,
+        )
+
+    if end_watch_peak_windows_seconds is None:
+        end_watch = detect_regular_peak_group(
+            time_seconds=watch_time,
+            values=acceleration_score,
+            window_seconds=resolved_end,
+            expected_peak_count=expected_impulses,
+        )
+    else:
+        end_watch = detect_confirmed_peak_group(
+            time_seconds=watch_time,
+            values=acceleration_score,
+            peak_windows_seconds=
+                end_watch_peak_windows_seconds,
+            expected_peak_count=
+                expected_impulses,
+        )
 
     result = estimate_constant_offset(
         session_id=session_id,
@@ -197,9 +498,7 @@ def analyze_session_synchronization(
         start_watch_marker=start_watch,
         end_audio_marker=end_audio,
         end_watch_marker=end_watch,
-        watch_time_seconds=signals.accelerometer[
-            "time_seconds"
-        ].to_numpy(dtype=np.float64),
+        watch_time_seconds=watch_time,
     )
 
     return (
