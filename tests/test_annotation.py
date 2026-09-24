@@ -249,6 +249,22 @@ class AnnotationValidationTest(unittest.TestCase):
         result = self._validate()
         self.assertEqual(result.uncertain_interval_count, 1)
 
+    def test_coughing_negative_is_valid(self) -> None:
+        self.annotation["negative_intervals"][0]["scenario"] = "COUGHING"
+
+        result = self._validate()
+
+        self.assertEqual(result.negative_interval_count, 1)
+
+    def test_arm_movement_without_container_negative_is_valid(self) -> None:
+        self.annotation["negative_intervals"][0][
+            "scenario"
+        ] = "ARM_MOVEMENT_WITHOUT_CONTAINER"
+
+        result = self._validate()
+
+        self.assertEqual(result.negative_interval_count, 1)
+
     def test_mixed_session_with_multiple_scenarios_is_valid(self) -> None:
         self.annotation["session_mode"] = "CONTINUOUS_MIXED_ACTIVITY"
         self.annotation["negative_intervals"].append({

@@ -232,7 +232,9 @@
             "TOUCH_FACE",
             "SMARTPHONE_USE",
             "SPEAKING",
-            "EATING"
+            "EATING",
+            "COUGHING",
+            "ARM_MOVEMENT_WITHOUT_CONTAINER"
           ]
         },
         "container_type": {
