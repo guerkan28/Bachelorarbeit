@@ -41,6 +41,7 @@ def build_feature_datasets_from_window_csv(
     *,
     data_root: str | Path,
     window_csv: str | Path,
+    participant_data_roots: dict[str, str | Path] | None = None,
 ) -> FeatureDatasetTables:
     """
     Erzeugt Audio-, Watch- und Fusionsfeaturetabellen aus einem
@@ -58,6 +59,27 @@ def build_feature_datasets_from_window_csv(
         raise FeatureDatasetError(
             f"Datenordner nicht gefunden: {root}"
         )
+
+    resolved_participant_data_roots: dict[str, Path] = {}
+
+    if participant_data_roots is not None:
+        for participant_id, participant_root in (
+            participant_data_roots.items()
+        ):
+            resolved_root = Path(
+                participant_root
+            ).expanduser().resolve()
+
+            if not resolved_root.is_dir():
+                raise FeatureDatasetError(
+                    "Datenordner f?r Teilnehmer "
+                    f"{participant_id} nicht gefunden: "
+                    f"{resolved_root}"
+                )
+
+            resolved_participant_data_roots[
+                str(participant_id)
+            ] = resolved_root
 
     if not csv_path.is_file():
         raise FeatureDatasetError(
@@ -117,10 +139,17 @@ def build_feature_datasets_from_window_csv(
         )
 
         if window.session_id not in session_cache:
+            session_root = (
+                resolved_participant_data_roots.get(
+                    window.participant_id,
+                    root,
+                )
+            )
+
             session_cache[
                 window.session_id
             ] = load_aligned_session_signals(
-                data_root=root,
+                data_root=session_root,
                 session_id=window.session_id,
             )
 

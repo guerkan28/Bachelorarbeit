@@ -6,6 +6,8 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -26,6 +28,10 @@ from trinkerkennung_analysis.window_dataset import (
 class FeatureDatasetTest(unittest.TestCase):
     SESSION_ID = (
         "11111111-2222-4333-8444-555555555555"
+    )
+
+    SECOND_SESSION_ID = (
+        "66666666-7777-4888-8999-000000000000"
     )
 
     def setUp(self) -> None:
@@ -209,6 +215,100 @@ class FeatureDatasetTest(unittest.TestCase):
             self.assertTrue(
                 path.is_file()
             )
+
+    def test_participants_can_use_separate_data_roots(
+        self,
+    ) -> None:
+        second_root = self.root / "second_study"
+        second_root.mkdir()
+
+        rows = self._valid_window_rows()
+
+        rows[1]["participant_id"] = "P002"
+        rows[1]["session_id"] = self.SECOND_SESSION_ID
+        rows[1]["window_id"] = (
+            f"{self.SECOND_SESSION_ID}"
+            "__N001__W001"
+        )
+
+        self._write_window_csv(rows)
+
+        synchronized = SimpleNamespace(
+            audio_samples=np.array(
+                [0.0],
+                dtype=np.float64,
+            ),
+            audio_sample_rate_hz=8000,
+            accelerometer=pd.DataFrame(),
+            gyroscope=pd.DataFrame(),
+        )
+
+        audio_features = {
+            f"audio_test_{index:02d}": float(index)
+            for index in range(38)
+        }
+
+        watch_features = {
+            **{
+                f"acc_test_{index:02d}": float(index)
+                for index in range(24)
+            },
+            **{
+                f"gyro_test_{index:02d}": float(index)
+                for index in range(24)
+            },
+        }
+
+        with (
+            patch(
+                "trinkerkennung_analysis.feature_dataset."
+                "load_aligned_session_signals"
+            ) as load_mock,
+            patch(
+                "trinkerkennung_analysis.feature_dataset."
+                "extract_synchronized_window",
+                return_value=synchronized,
+            ),
+            patch(
+                "trinkerkennung_analysis.feature_dataset."
+                "extract_audio_features",
+                return_value=audio_features,
+            ),
+            patch(
+                "trinkerkennung_analysis.feature_dataset."
+                "extract_watch_features",
+                return_value=watch_features,
+            ),
+        ):
+            load_mock.return_value = object()
+
+            tables = build_feature_datasets_from_window_csv(
+                data_root=self.root,
+                participant_data_roots={
+                    "P002": second_root,
+                },
+                window_csv=self.window_csv,
+            )
+
+        self.assertEqual(
+            len(tables.fusion),
+            2,
+        )
+
+        load_mock.assert_any_call(
+            data_root=self.root.resolve(),
+            session_id=self.SESSION_ID,
+        )
+
+        load_mock.assert_any_call(
+            data_root=second_root.resolve(),
+            session_id=self.SECOND_SESSION_ID,
+        )
+
+        self.assertEqual(
+            load_mock.call_count,
+            2,
+        )
 
     def _build(self):
         return (
