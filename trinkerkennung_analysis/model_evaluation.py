@@ -219,6 +219,12 @@ def evaluate_loso(
     modality: str,
     model_name: str,
     return_predictions: bool = False,
+    test_participants: (
+        tuple[str, ...]
+        | list[str]
+        | set[str]
+        | None
+    ) = None,
 ) -> (
     list[FoldEvaluationResult]
     | tuple[list[FoldEvaluationResult], pd.DataFrame]
@@ -287,6 +293,34 @@ def evaluate_loso(
             "drei Teilnehmende benötigt."
         )
 
+    if test_participants is None:
+        selected_test_participants = set(
+            participants
+        )
+    else:
+        selected_test_participants = {
+            str(participant)
+            for participant in test_participants
+        }
+
+        if not selected_test_participants:
+            raise ModelEvaluationError(
+                "test_participants darf nicht leer sein."
+            )
+
+        unknown_test_participants = sorted(
+            selected_test_participants
+            - set(participants)
+        )
+
+        if unknown_test_participants:
+            raise ModelEvaluationError(
+                "Unbekannte Testpersonen: "
+                + ", ".join(
+                    unknown_test_participants
+                )
+            )
+
     metadata_columns = [
         column
         for column in frame.columns
@@ -308,17 +342,23 @@ def evaluate_loso(
                 set(groups[train_indices])
             )
         )
-        test_participants = sorted(
+        fold_test_participants = sorted(
             set(groups[test_indices])
         )
 
-        if len(test_participants) != 1:
+        if len(fold_test_participants) != 1:
             raise ModelEvaluationError(
                 "Ein LOSO-Testfold muss genau eine "
                 "Testperson enthalten."
             )
 
-        test_participant = test_participants[0]
+        test_participant = fold_test_participants[0]
+
+        if (
+            test_participant
+            not in selected_test_participants
+        ):
+            continue
 
         if test_participant in train_participants:
             raise ModelEvaluationError(

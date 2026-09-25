@@ -340,6 +340,114 @@ class ModelEvaluationTest(unittest.TestCase):
                 4,
             )
 
+    def test_loso_can_restrict_test_participants(
+        self,
+    ) -> None:
+        pilot_frame = self._audio_frame()
+
+        main_frames = []
+
+        source = pilot_frame[
+            pilot_frame["participant_id"] == "P101"
+        ]
+
+        for participant in (
+            "P104",
+            "P105",
+            "P106",
+            "P107",
+            "P108",
+        ):
+            participant_frame = source.copy()
+
+            participant_frame[
+                "participant_id"
+            ] = participant
+
+            participant_frame[
+                "session_id"
+            ] = f"session_{participant}"
+
+            participant_frame[
+                "window_id"
+            ] = [
+                f"{participant}_W{index:03d}"
+                for index in range(
+                    len(participant_frame)
+                )
+            ]
+
+            main_frames.append(
+                participant_frame
+            )
+
+        frame = pd.concat(
+            [
+                pilot_frame,
+                *main_frames,
+            ],
+            ignore_index=True,
+        )
+
+        final_test_participants = (
+            "P104",
+            "P105",
+            "P106",
+            "P107",
+            "P108",
+        )
+
+        results = evaluate_loso(
+            frame=frame,
+            modality=MODALITY_AUDIO,
+            model_name=MODEL_DUMMY,
+            test_participants=final_test_participants,
+        )
+
+        self.assertEqual(
+            len(results),
+            5,
+        )
+
+        self.assertEqual(
+            {
+                result.test_participant
+                for result in results
+            },
+            set(final_test_participants),
+        )
+
+        for result in results:
+            self.assertNotIn(
+                result.test_participant,
+                result.train_participants,
+            )
+
+            self.assertTrue(
+                {
+                    "P101",
+                    "P102",
+                    "P103",
+                }.issubset(
+                    result.train_participants
+                )
+            )
+
+            self.assertEqual(
+                len(result.train_participants),
+                7,
+            )
+
+            self.assertEqual(
+                result.train_rows,
+                28,
+            )
+
+            self.assertEqual(
+                result.test_rows,
+                4,
+            )
+
     def test_dummy_fold_metrics_are_correct(
         self,
     ) -> None:
