@@ -241,21 +241,32 @@ def generate_windows_for_sessions(
     session_ids: Sequence[str],
     window_length_seconds: float,
     stride_seconds: float,
+    annotations_root: str | Path | None = None,
 ) -> list[WindowRecord]:
     """
     Erzeugt einen gemeinsamen Fensterdatensatz für explizit angegebene
     Sessions.
 
-    Die kanonische Annotation wird ausschließlich aus
-    <data_root>/annotations geladen. Backup-Verzeichnisse werden dadurch
-    nicht versehentlich als zusätzliche Datenquelle verwendet.
+    data_root wird für die sitzungsübergreifende Validierung verwendet.
+    Der kanonische Annotationsordner kann davon getrennt über
+    annotations_root angegeben werden.
+
+    Wird annotations_root nicht angegeben, bleibt das bisherige Verhalten
+    erhalten und <data_root>/annotations wird verwendet.
     """
     root = Path(data_root).expanduser().resolve()
-    annotations_root = root / "annotations"
 
-    if not annotations_root.is_dir():
+    if annotations_root is None:
+        resolved_annotations_root = root / "annotations"
+    else:
+        resolved_annotations_root = (
+            Path(annotations_root).expanduser().resolve()
+        )
+
+    if not resolved_annotations_root.is_dir():
         raise WindowDatasetError(
-            f"Annotationsordner nicht gefunden: {annotations_root}"
+            "Annotationsordner nicht gefunden: "
+            f"{resolved_annotations_root}"
         )
 
     seen_session_ids: set[str] = set()
@@ -269,7 +280,7 @@ def generate_windows_for_sessions(
         seen_session_ids.add(session_id)
 
         annotation_path = (
-            annotations_root
+            resolved_annotations_root
             / f"annotation_{session_id}.json"
         )
 
