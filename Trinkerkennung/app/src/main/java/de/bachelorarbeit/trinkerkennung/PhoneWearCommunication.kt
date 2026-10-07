@@ -1029,7 +1029,7 @@ class PhoneWearCommunication(
 
                 val reason =
                     "START_ACK_TIMEOUT: Keine STARTED-" +
-                            "Best?tigung innerhalb von " +
+                            "Bestätigung innerhalb von " +
                             "${SESSION_ACK_TIMEOUT_MS / 1_000} " +
                             "Sekunden."
 
@@ -1041,8 +1041,8 @@ class PhoneWearCommunication(
 
                 /*
                  * START kann die Watch erreicht haben, obwohl die
-                 * STARTED-Best?tigung verloren gegangen ist.
-                 * Deshalb wird bestm?glich noch ein STOP gesendet,
+                 * STARTED-Bestätigung verloren gegangen ist.
+                 * Deshalb wird bestmöglich noch ein STOP gesendet,
                  * bevor die Smartphone-Seite die Sitzung verwirft.
                  */
                 sendBestEffortStopAfterStartTimeout(
@@ -1053,7 +1053,7 @@ class PhoneWearCommunication(
                 resetSession()
 
                 updateStatus(
-                    "STARTED-Timeout f?r Sitzung " +
+                    "STARTED-Timeout für Sitzung " +
                             "${sessionId.take(8)}. " +
                             "Die Sitzung wird als technisch " +
                             "fehlgeschlagen beendet."
@@ -1091,7 +1091,7 @@ class PhoneWearCommunication(
 
                 val reason =
                     "STOP_ACK_TIMEOUT: Keine STOPPED-" +
-                            "Best?tigung innerhalb von " +
+                            "Bestätigung innerhalb von " +
                             "${SESSION_ACK_TIMEOUT_MS / 1_000} " +
                             "Sekunden."
 
@@ -1104,7 +1104,7 @@ class PhoneWearCommunication(
                 resetSession()
 
                 updateStatus(
-                    "STOPPED-Timeout f?r Sitzung " +
+                    "STOPPED-Timeout für Sitzung " +
                             "${sessionId.take(8)}. " +
                             "Die Smartphone-Aufnahme wird " +
                             "kontrolliert abgeschlossen; die " +
@@ -1114,7 +1114,7 @@ class PhoneWearCommunication(
                 /*
                  * Der vorhandene Callback beendet die lokale
                  * Audioaufnahme und finalisiert die Metadaten.
-                 * Aufgrund von recordFailure() erh?lt die Sitzung
+                 * Aufgrund von recordFailure() erhält die Sitzung
                  * dabei den finalen Status FAILED.
                  */
                 onSessionStopped(

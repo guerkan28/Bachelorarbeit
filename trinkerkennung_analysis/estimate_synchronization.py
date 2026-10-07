@@ -177,7 +177,7 @@ def create_synchronization_outputs(
         "confirmed_peak_windows_seconds":
             confirmed_windows,
         "note": (
-            "CONFIRMED_PEAK_WINDOWS verwendet fachlich best?tigte "
+            "CONFIRMED_PEAK_WINDOWS verwendet fachlich bestätigte "
             "kleine Suchfenster. Die konkrete Peakposition wird "
             "innerhalb der Fenster weiterhin algorithmisch bestimmt."
         ),

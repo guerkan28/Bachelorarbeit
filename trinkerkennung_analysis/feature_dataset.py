@@ -72,7 +72,7 @@ def build_feature_datasets_from_window_csv(
 
             if not resolved_root.is_dir():
                 raise FeatureDatasetError(
-                    "Datenordner f?r Teilnehmer "
+                    "Datenordner für Teilnehmer "
                     f"{participant_id} nicht gefunden: "
                     f"{resolved_root}"
                 )

@@ -91,7 +91,7 @@ class SynchronizationTest(unittest.TestCase):
                 ** 2
             )
 
-        # Der regul?re Detektor muss wegen
+        # Der reguläre Detektor muss wegen
         # des Abstands von 1,4 s weiterhin scheitern.
         with self.assertRaises(
             SynchronizationError

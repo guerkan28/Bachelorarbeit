@@ -122,10 +122,10 @@ def detect_confirmed_peak_group(
     ),
     expected_peak_count: int = 3,
 ) -> MarkerGroup:
-    """Erkennt Markerpeaks in fachlich best?tigten kleinen Suchfenstern.
+    """Erkennt Markerpeaks in fachlich bestätigten kleinen Suchfenstern.
 
-    Der regul?re automatische Detektor bleibt unver?ndert. Dieser
-    Fallback wird nur verwendet, wenn f?r jeden erwarteten Impuls
+    Der reguläre automatische Detektor bleibt unverändert. Dieser
+    Fallback wird nur verwendet, wenn für jeden erwarteten Impuls
     ein separates, zeitlich geordnetes Suchfenster vorgegeben wurde.
     Die konkrete Peakposition wird weiterhin algorithmisch aus dem
     Signal bestimmt.
@@ -146,7 +146,7 @@ def detect_confirmed_peak_group(
         or time_values.size < 3
     ):
         raise SynchronizationError(
-            "Zeit- und Markersignal m?ssen eindimensional "
+            "Zeit- und Markersignal müssen eindimensional "
             "und gleich lang sein."
         )
 
@@ -155,12 +155,12 @@ def detect_confirmed_peak_group(
         and np.isfinite(signal_values).all()
     ):
         raise SynchronizationError(
-            "Zeit- oder Markersignal enth?lt ung?ltige Werte."
+            "Zeit- oder Markersignal enthält ungültige Werte."
         )
 
     if expected_peak_count < 2:
         raise SynchronizationError(
-            "Es werden mindestens zwei Markerimpulse ben?tigt."
+            "Es werden mindestens zwei Markerimpulse benötigt."
         )
 
     windows = tuple(
@@ -169,8 +169,8 @@ def detect_confirmed_peak_group(
 
     if len(windows) != expected_peak_count:
         raise SynchronizationError(
-            "Die Anzahl best?tigter Peak-Suchfenster stimmt nicht "
-            "mit der erwarteten Impulsanzahl ?berein."
+            "Die Anzahl bestätigter Peak-Suchfenster stimmt nicht "
+            "mit der erwarteten Impulsanzahl überein."
         )
 
     validated_windows: list[
@@ -186,7 +186,7 @@ def detect_confirmed_peak_group(
         validated = _validate_window(
             window,
             float(time_values[-1]),
-            f"Best?tigtes Markerfenster {index}",
+            f"Bestätigtes Markerfenster {index}",
         )
 
         if (
@@ -194,8 +194,8 @@ def detect_confirmed_peak_group(
             and validated[0] <= previous_end
         ):
             raise SynchronizationError(
-                "Best?tigte Peak-Suchfenster m?ssen zeitlich "
-                "geordnet sein und d?rfen sich nicht ?berlappen."
+                "Bestätigte Peak-Suchfenster müssen zeitlich "
+                "geordnet sein und dürfen sich nicht überlappen."
             )
 
         validated_windows.append(
@@ -223,7 +223,7 @@ def detect_confirmed_peak_group(
 
     if union_values.size < expected_peak_count + 2:
         raise SynchronizationError(
-            "Die best?tigten Markerfenster enthalten "
+            "Die bestätigten Markerfenster enthalten "
             "zu wenige Signalwerte."
         )
 
@@ -268,8 +268,8 @@ def detect_confirmed_peak_group(
 
         if indices.size < 3:
             raise SynchronizationError(
-                f"Best?tigtes Markerfenster {number} "
-                "enth?lt zu wenige Signalwerte."
+                f"Bestätigtes Markerfenster {number} "
+                "enthält zu wenige Signalwerte."
             )
 
         local_values = signal_values[
@@ -289,8 +289,8 @@ def detect_confirmed_peak_group(
 
         if local_maxima.size == 0:
             raise SynchronizationError(
-                f"Best?tigtes Markerfenster {number} "
-                "enth?lt kein lokales Maximum."
+                f"Bestätigtes Markerfenster {number} "
+                "enthält kein lokales Maximum."
             )
 
         local_peak = int(
@@ -312,8 +312,8 @@ def detect_confirmed_peak_group(
             < threshold
         ):
             raise SynchronizationError(
-                f"Best?tigtes Markerfenster {number} "
-                "enth?lt keinen ausreichend ausgepr?gten Peak."
+                f"Bestätigtes Markerfenster {number} "
+                "enthält keinen ausreichend ausgeprägten Peak."
             )
 
         selected_indices.append(

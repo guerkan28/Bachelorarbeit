@@ -136,7 +136,7 @@ def select_feature_columns(
 
     else:
         raise ModelEvaluationError(
-            f"Unbekannte ModalitÃ¤t: {modality}"
+            f"Unbekannte Modalität: {modality}"
         )
 
     columns = [

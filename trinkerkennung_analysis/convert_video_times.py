@@ -13,13 +13,13 @@ AUDIO_TIME_REFERENCE = "AUDIO_SECONDS_FROM_WAV_START"
 
 
 class VideoTimeConversionError(ValueError):
-    """Raised when a video-to-audio time mapping cannot be used safely."""
+    """Fehler bei der sicheren Umrechnung von Video- auf Audiozeit."""
 
 
 def load_video_to_audio_mapping(
     synchronization_report_path: str | Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Load and validate the video-to-audio mapping from a synchronization report."""
+    """Lädt und validiert die Video-zu-Audio-Abbildung aus einem Synchronisationsbericht."""
     path = Path(synchronization_report_path).expanduser().resolve()
 
     try:
@@ -66,7 +66,7 @@ def load_video_to_audio_mapping(
             "Die Skalierung der Videoabbildung muss größer als 0 sein."
         )
 
-    # Store normalized numeric values so callers can rely on float semantics.
+    # Speichert normalisierte numerische Werte mit einheitlicher float-Semantik.
     mapping = dict(mapping)
     mapping["scale"] = scale
     mapping["offset_seconds"] = offset
@@ -82,7 +82,7 @@ def convert_video_times(
     audio_duration_seconds: float | None = None,
     labels: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Convert video times into the canonical audio time reference."""
+    """Überführt Videozeitpunkte in die kanonische Audiozeitreferenz."""
     if not video_times_seconds:
         raise VideoTimeConversionError(
             "Mindestens ein Videozeitpunkt muss angegeben werden."
@@ -143,7 +143,7 @@ def create_conversion_report(
     video_times_seconds: Sequence[float],
     labels: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Create a serializable conversion report from a synchronization report."""
+    """Erzeugt einen serialisierbaren Konvertierungsbericht aus einem Synchronisationsbericht."""
     report, mapping = load_video_to_audio_mapping(
         synchronization_report_path
     )
